@@ -4,6 +4,10 @@ const directions = ['in', 'out', 'bidirectional']
 const fail = (message) => { throw Object.assign(new Error(message), { status: 400 }) }
 const object = (v) => v && typeof v === 'object' && !Array.isArray(v)
 const string = (v) => typeof v === 'string' && v.trim().length > 0
+const webUrl = (v) => {
+  if (!string(v) || v.length > 2048) return false
+  try { return ['http:', 'https:'].includes(new URL(v).protocol) } catch { return false }
+}
 
 export function normalizeColorLiterals(text) { return text.replace(/^([ \t]*color:[ \t]*)(#[0-9a-fA-F]{6})(?=[ \t]*(?:#.*)?\r?$)/gm, '$1"$2"') }
 
@@ -24,9 +28,15 @@ export function validateBlock(text) {
   }
   if (b.properties != null && !object(b.properties)) fail('properties debe ser un mapa')
   if (b.properties?.url != null && b.properties.url !== '') {
-    if (typeof b.properties.url !== 'string' || b.properties.url.length > 2048) fail('properties.url debe ser una URL HTTP o HTTPS')
-    try { if (!['http:', 'https:'].includes(new URL(b.properties.url).protocol)) fail('properties.url debe ser una URL HTTP o HTTPS') }
-    catch { fail('properties.url debe ser una URL HTTP o HTTPS') }
+    if (!webUrl(b.properties.url)) fail('properties.url debe ser una URL HTTP o HTTPS')
+  }
+  if (b.properties?.urls != null) {
+    if (!Array.isArray(b.properties.urls)) fail('properties.urls debe ser una lista de enlaces')
+    for (const entry of b.properties.urls) {
+      if (!object(entry) || Object.keys(entry).length !== 1) fail('Cada elemento de properties.urls debe tener un nombre y una URL')
+      const [label, url] = Object.entries(entry)[0]
+      if (!string(label) || label.length > 100 || !webUrl(url)) fail('Cada elemento de properties.urls debe tener un nombre y una URL HTTP o HTTPS')
+    }
   }
   if (!Array.isArray(b.ports) || b.ports.length === 0) fail('El bloque requiere al menos un puerto')
   const ids = new Set()

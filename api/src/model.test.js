@@ -63,3 +63,14 @@ test('accepts datasheet URLs in block properties and rejects unsafe links', () =
     assert.throws(() => validateBlock(stringify({ ...sensor, properties: { url } })), /properties.url/)
   }
 })
+test('accepts multiple named links and rejects malformed link lists', () => {
+  const urls = [{ datasheet: 'https://example.com/sensor.html' }, { paper: 'https://example.com/sensor.pdf' }]
+  assert.deepEqual(validateBlock(stringify({ ...sensor, properties: { range: '-40..85 °C', urls } })).properties.urls, urls)
+  for (const invalid of [
+    { datasheet: 'javascript:alert(1)' },
+    { datasheet: 'https://example.com', paper: 'https://example.com/paper' },
+    { datasheet: 123 },
+    {},
+  ]) assert.throws(() => validateBlock(stringify({ ...sensor, properties: { urls: [invalid] } })), /properties.urls/)
+  assert.throws(() => validateBlock(stringify({ ...sensor, properties: { urls: 'https://example.com' } })), /properties.urls/)
+})
