@@ -85,7 +85,7 @@ function graphFromDiagram() {
   setTimeout(() => fitView({ padding: 0.25, maxZoom: 1 }), 50)
 }
 function safePortColor(value?: string) { return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value) ? value : undefined }
-function findEdgeColor(e: Diagram['edges'][number], doc: Diagram = diagram.value) { const source = doc.nodes.find(n => n.id === e.source)?.block.ports.find(p => p.id === e.sourcePort); const target = doc.nodes.find(n => n.id === e.target)?.block.ports.find(p => p.id === e.targetPort); return safePortColor(source?.color) || safePortColor(target?.color) }
+function findEdgeColor(e: Diagram['edges'][number], doc: Diagram = diagram.value) { const source = doc.nodes.find(n => n.id === e.source)?.block.ports.find(p => p.id === e.sourcePort); const target = doc.nodes.find(n => n.id === e.target)?.block.ports.find(p => p.id === e.targetPort); return safePortColor(source?.color) || safePortColor(target?.color) || (user.value?.theme === 'light' ? '#087f66' : '#68d8b1') }
 function findProtocol(e: Diagram['edges'][number]) { return diagram.value.nodes.find(n => n.id === e.source)?.block.ports.find(p => p.id === e.sourcePort)?.protocol || '' }
 function parseHardwareYaml(text: string) { return YAML.parse(text.replace(/^([ \t]*color:[ \t]*)(#[0-9a-fA-F]{6})(?=[ \t]*(?:#.*)?\r?$)/gm, '$1"$2"')) }
 function safeExternalUrl(value: unknown) { if (typeof value !== 'string' || value.length > 2048) return ''; try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.href : '' } catch { return '' } }

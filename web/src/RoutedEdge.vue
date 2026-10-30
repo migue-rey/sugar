@@ -74,7 +74,7 @@ onBeforeUnmount(stop)
 </script>
 
 <template>
-  <BaseEdge :id="id" :path="path" :label="label" :label-x="labelPoint.x" :label-y="labelPoint.y - 18" :marker-end="markerEnd" :interaction-width="24" :style="data?.color ? { stroke: data.color } : undefined" />
+  <BaseEdge :id="id" :path="path" fill="none" :label="label" :label-x="labelPoint.x" :label-y="labelPoint.y - 18" :marker-end="markerEnd" :interaction-width="24" :style="data?.color ? { stroke: data.color } : undefined" />
   <template v-if="data?.editable && selected">
     <g v-if="showVerticalHandle" class="edge-route-control" :transform="`translate(${verticalHandle.x} ${verticalHandle.y})`" @pointerdown="start('x', $event)">
       <circle class="edge-route-handle-hit" r="17" />
