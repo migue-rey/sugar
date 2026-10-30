@@ -18,6 +18,18 @@ test('rejects incompatible protocols and excess connections', () => {
   doc.edges.push({ id: 'e2', source: 'mcu', sourcePort: 'i2c', target: 'sensor', targetPort: 'i2c' })
   assert.throws(() => validateProject(stringify(doc)), /Límite de conexiones/)
 })
+test('matches custom protocol text across ports', () => {
+  const custom = protocol => ({ ...sensor, ports: [{ ...sensor.ports[0], protocol }] })
+  const doc = { name: 'Personalizado', nodes: [node('a', custom('PAC')), node('b', custom('PAC'))], edges: [{ id: 'e1', source: 'a', sourcePort: 'i2c', target: 'b', targetPort: 'i2c' }] }
+  assert.equal(validateProject(stringify(doc)).edges.length, 1)
+  doc.nodes[1].block = custom(' CSI ')
+  assert.throws(() => validateProject(stringify(doc)), /Protocolos incompatibles/)
+  doc.nodes[0].block = custom('CSI')
+  assert.equal(validateProject(stringify(doc)).edges.length, 1)
+  doc.nodes[1].block = custom('csi')
+  assert.throws(() => validateProject(stringify(doc)), /Protocolos incompatibles/)
+  assert.throws(() => validateBlock(stringify(custom('   '))), /Puerto inválido/)
+})
 test('rejects malformed blocks and duplicate YAML keys', () => {
   assert.throws(() => validateBlock('name: Test\nname: Again\n'), /name/)
   assert.throws(() => validateBlock(stringify({ name: 'Test', function: 'x', ports: [] })), /puerto/)

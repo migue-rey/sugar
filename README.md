@@ -46,7 +46,7 @@ ports:
     maxConnections: 1
 ```
 
-Ports support `I2C`, `SPI`, `UART`, `GPIO`, and `POWER`; directions are `in`, `out`, and `bidirectional`. The server validates protocol, direction, port existence and connection limits. The YAML editor accepts an unfinished draft but will not apply or save it until validation succeeds.
+A port can use any non-empty protocol text, such as `I2C`, `CSI`, `LVDS`, or `PAC`. Two ports connect when their protocol text matches after trimming outer whitespace; matching is case-sensitive. Directions are `in`, `out`, and `bidirectional`. The server also validates direction, port existence and connection limits. The YAML editor accepts an unfinished draft but will not apply or save it until validation succeeds.
 
 ## Roles
 

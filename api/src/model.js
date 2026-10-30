@@ -1,6 +1,5 @@
 import YAML from 'yaml'
 
-export const protocols = ['I2C', 'SPI', 'UART', 'GPIO', 'POWER']
 const directions = ['in', 'out', 'bidirectional']
 const fail = (message) => { throw Object.assign(new Error(message), { status: 400 }) }
 const object = (v) => v && typeof v === 'object' && !Array.isArray(v)
@@ -25,7 +24,7 @@ export function validateBlock(text) {
   if (!Array.isArray(b.ports) || b.ports.length === 0) fail('El bloque requiere al menos un puerto')
   const ids = new Set()
   for (const p of b.ports) {
-    if (!object(p) || !string(p.id) || !string(p.label) || !protocols.includes(p.protocol) || !directions.includes(p.direction)) fail('Puerto inválido: id, label, protocol y direction son obligatorios')
+    if (!object(p) || !string(p.id) || !string(p.label) || !string(p.protocol) || !directions.includes(p.direction)) fail('Puerto inválido: id, label, protocol y direction son obligatorios')
     if (ids.has(p.id)) fail(`Puerto duplicado: ${p.id}`)
     ids.add(p.id)
     if (p.maxConnections != null && (!Number.isInteger(p.maxConnections) || p.maxConnections < 1)) fail('maxConnections debe ser un entero positivo')
@@ -53,7 +52,7 @@ export function validateProject(text) {
     if (!a || !b || a === b) fail('La conexión debe unir dos bloques existentes')
     const ap = a.block.ports.find(x => x.id === e.sourcePort), bp = b.block.ports.find(x => x.id === e.targetPort)
     if (!ap || !bp) fail('La conexión referencia un puerto inexistente')
-    if (ap.protocol !== bp.protocol) fail(`Protocolos incompatibles: ${ap.protocol} y ${bp.protocol}`)
+    if (ap.protocol.trim() !== bp.protocol.trim()) fail(`Protocolos incompatibles: ${ap.protocol} y ${bp.protocol}`)
     if (ap.direction === 'in' || bp.direction === 'out') fail('Dirección de puertos incompatible')
     for (const [id, port] of [[a.id, ap], [b.id, bp]]) {
       const key = `${id}:${port.id}`, count = (counts.get(key) || 0) + 1
