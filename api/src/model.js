@@ -21,6 +21,9 @@ export function parseYaml(text) {
 export function validateBlock(text) {
   const b = parseYaml(text)
   if (!object(b) || !string(b.name) || !string(b.function)) fail('El bloque requiere name y function')
+  if (b.category != null && (typeof b.category !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(b.category))) fail('category debe ser un identificador de categoría válido')
+  if (b.subcategory != null && (typeof b.subcategory !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(b.subcategory))) fail('subcategory debe ser un identificador válido')
+  if (b.subcategory && !b.category) fail('subcategory requiere category')
   if (b.model != null && typeof b.model !== 'string') fail('model debe ser texto')
   if (b.image != null && b.image !== '') {
     if (typeof b.image !== 'string' || b.image.length > 2048 || !(b.image.startsWith('https://') || /^\/api\/images\/[0-9a-f-]{36}\/content$/.test(b.image))) fail('image debe ser una URL HTTPS o una ruta de la galería')

@@ -48,6 +48,12 @@ test('rejects malformed blocks and duplicate YAML keys', () => {
   assert.throws(() => validateBlock('name: Test\nname: Again\n'), /name/)
   assert.throws(() => validateBlock(stringify({ name: 'Test', function: 'x', ports: [] })), /puerto/)
 })
+test('allows legacy project snapshots but validates category slugs in block YAML', () => {
+  assert.equal(validateBlock(stringify({ ...sensor, category: 'sensores', subcategory: 'temperatura' })).subcategory, 'temperatura')
+  assert.throws(() => validateBlock(stringify({ ...sensor, category: 'Sensores' })), /category/)
+  assert.throws(() => validateBlock(stringify({ ...sensor, subcategory: 'temperatura' })), /subcategory requiere category/)
+  assert.equal(validateProject(stringify({ name: 'Anterior', nodes: [node('sensor', sensor)], edges: [] })).nodes.length, 1)
+})
 test('accepts image URLs and rejects embedded or unsafe images', () => {
   const galleryUrl = '/api/images/123e4567-e89b-42d3-a456-426614174000/content'
   assert.equal(validateBlock(stringify({ ...sensor, image: galleryUrl })).image, galleryUrl)

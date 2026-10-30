@@ -8,6 +8,7 @@ import { q, initDb, transaction, signingSecret } from './db.js'
 import { validateBlock, validateProject, stringify, normalizeColorLiterals } from './model.js'
 import { enqueue, startSync, syncOne } from './github.js'
 import { imageBytes, replaceEmbeddedImages } from './images.js'
+import { archiveCategory, createCategory, listCategories, renameCategory, validateCategory } from './categories.js'
 
 const app = express()
 app.use(express.json({ limit: '3mb' }))
@@ -101,7 +102,7 @@ app.delete('/api/images/:id', asyncRoute(async (req, res) => {
 app.get('/api/me', (req, res) => res.json(req.user))
 app.post('/api/validate', asyncRoute(async (req, res) => {
   if (req.body.kind === 'project') validateProject(req.body.yaml)
-  else if (req.body.kind === 'block') validateBlock(req.body.yaml)
+  else if (req.body.kind === 'block') await validateCategory(validateBlock(req.body.yaml))
   else error(400, 'Tipo de documento inválido')
   res.json({ ok: true })
 }))
@@ -143,6 +144,21 @@ app.delete('/api/users/:id', asyncRoute(async (req, res) => {
   res.json({ ok: true })
 }))
 
+app.get('/api/categories', asyncRoute(async (_req, res) => { res.json(await listCategories()) }))
+app.post('/api/categories', asyncRoute(async (req, res) => {
+  requireAdmin(req)
+  res.status(201).json(await transaction(tx => createCategory(req.body.name, req.body.parentId || null, tx)))
+}))
+app.patch('/api/categories/:id', asyncRoute(async (req, res) => {
+  requireAdmin(req)
+  res.json(await transaction(tx => renameCategory(req.params.id, req.body.name, tx)))
+}))
+app.delete('/api/categories/:id', asyncRoute(async (req, res) => {
+  requireAdmin(req)
+  await transaction(tx => archiveCategory(req.params.id, tx))
+  res.json({ ok: true })
+}))
+
 app.get('/api/blocks', asyncRoute(async (_req, res) => {
   res.json((await q(`SELECT b.id,b.name,b.latest_version,v.yaml,v.created_at FROM blocks b JOIN block_versions v ON v.block_id=b.id AND v.version=b.latest_version WHERE b.deleted_at IS NULL ORDER BY b.name`)).rows)
 }))
@@ -150,7 +166,8 @@ app.post('/api/blocks', asyncRoute(async (req, res) => {
   requireEdit(req)
   const yaml = normalizeColorLiterals(requiredText(req.body.yaml, 'YAML')), block = validateBlock(yaml), id = crypto.randomUUID(), summary = req.body.summary || 'Bloque creado'
   await transaction(async tx => {
-    await tx('INSERT INTO blocks(id,name,latest_version) VALUES($1,$2,1)', [id, block.name])
+    await validateCategory(block, tx)
+    await tx('INSERT INTO blocks(id,name,latest_version,category_slug,subcategory_slug) VALUES($1,$2,1,$3,$4)', [id, block.name, block.category, block.subcategory || null])
     await tx('INSERT INTO block_versions(block_id,version,yaml,author_id,summary) VALUES($1,1,$2,$3,$4)', [id, yaml, req.user.id, summary])
     await enqueue('block', id, 1, yaml, tx)
   })
@@ -179,9 +196,17 @@ app.post('/api/blocks/:id/restore', asyncRoute(async (req, res) => {
   const { rows } = await q('SELECT yaml FROM block_versions WHERE block_id=$1 AND version=$2', [req.params.id, wanted])
   if (!rows[0]) error(404, 'Versión no encontrada')
   const version = await transaction(async tx => {
-    const yaml = normalizeColorLiterals(await replaceEmbeddedImages(rows[0].yaml, 'block', tx))
-    const block = validateBlock(yaml)
-    const saved = await tx('UPDATE blocks SET name=$3,latest_version=latest_version+1 WHERE id=$1 AND latest_version=$2 AND deleted_at IS NULL RETURNING latest_version', [req.params.id, expected, block.name])
+    let yaml = normalizeColorLiterals(await replaceEmbeddedImages(rows[0].yaml, 'block', tx))
+    let block = validateBlock(yaml)
+    if (req.body.category) {
+      block.category = req.body.category
+      if (req.body.subcategory) block.subcategory = req.body.subcategory
+      else delete block.subcategory
+      yaml = stringify(block)
+      block = validateBlock(yaml)
+    }
+    await validateCategory(block, tx, !block.category)
+    const saved = await tx('UPDATE blocks SET name=$3,category_slug=$4,subcategory_slug=$5,latest_version=latest_version+1 WHERE id=$1 AND latest_version=$2 AND deleted_at IS NULL RETURNING latest_version', [req.params.id, expected, block.name, block.category || null, block.subcategory || null])
     if (!saved.rows[0]) error(409, 'El bloque cambió; recarga antes de restaurar')
     const version = saved.rows[0].latest_version
     await tx('INSERT INTO block_versions(block_id,version,yaml,author_id,summary) VALUES($1,$2,$3,$4,$5)', [req.params.id, version, yaml, req.user.id, `Restaurada versión ${wanted}`])
@@ -195,7 +220,8 @@ app.put('/api/blocks/:id', asyncRoute(async (req, res) => {
   const yaml = normalizeColorLiterals(requiredText(req.body.yaml, 'YAML')), block = validateBlock(yaml), expected = Number(req.body.expectedVersion)
   if (!Number.isInteger(expected) || expected < 1) error(400, 'Versión esperada inválida')
   const version = await transaction(async tx => {
-    const { rows } = await tx('UPDATE blocks SET name=$3,latest_version=latest_version+1 WHERE id=$1 AND latest_version=$2 AND deleted_at IS NULL RETURNING latest_version', [req.params.id, expected, block.name])
+    await validateCategory(block, tx)
+    const { rows } = await tx('UPDATE blocks SET name=$3,category_slug=$4,subcategory_slug=$5,latest_version=latest_version+1 WHERE id=$1 AND latest_version=$2 AND deleted_at IS NULL RETURNING latest_version', [req.params.id, expected, block.name, block.category, block.subcategory || null])
     if (!rows[0]) error(409, 'El bloque cambió; recarga antes de guardar')
     const version = rows[0].latest_version
     await tx('INSERT INTO block_versions(block_id,version,yaml,author_id,summary) VALUES($1,$2,$3,$4,$5)', [req.params.id, version, yaml, req.user.id, req.body.summary || 'Bloque actualizado'])
