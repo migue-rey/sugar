@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import YAML from 'yaml'
+import { ChevronRightIcon, MagnifyingGlassIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import CatalogBlock from './CatalogBlock.vue'
 import { messages } from './i18n'
 import type { Category, LibraryItem, Block } from './types'
@@ -45,21 +46,21 @@ function toggle(key: string) {
 
 <template>
   <div class="catalog">
-    <div class="catalog-search"><input v-model="search" type="search" :aria-label="t('searchBlocks')" :placeholder="t('searchBlocks')"><button v-if="search" :aria-label="t('clearSearch')" @click="search=''">×</button></div>
+    <div class="catalog-search"><MagnifyingGlassIcon class="ui-icon catalog-search-icon" aria-hidden="true" /><input v-model="search" type="search" :aria-label="t('searchBlocks')" :placeholder="t('searchBlocks')"><button v-if="search" :aria-label="t('clearSearch')" @click="search=''"><XMarkIcon class="ui-icon" aria-hidden="true" /></button></div>
     <p v-if="search" class="catalog-count">{{ matches.length }} {{ t('searchResults') }}</p>
     <section v-for="root in visibleRoots" :key="root.id" class="catalog-group">
-      <button class="catalog-toggle" :aria-expanded="isOpen(root.slug)" :aria-controls="`${mode}-category-${root.slug}`" @click="toggle(root.slug)"><span class="catalog-arrow" :class="{open:isOpen(root.slug)}">▸</span><strong>{{ root.name }}</strong><span class="catalog-badge">{{ categoryEntries(root).length }}</span></button>
+      <button class="catalog-toggle" :aria-expanded="isOpen(root.slug)" :aria-controls="`${mode}-category-${root.slug}`" @click="toggle(root.slug)"><ChevronRightIcon class="ui-icon catalog-arrow" :class="{open:isOpen(root.slug)}" aria-hidden="true" /><strong>{{ root.name }}</strong><span class="catalog-badge">{{ categoryEntries(root).length }}</span></button>
       <div v-show="isOpen(root.slug)" :id="`${mode}-category-${root.slug}`" class="catalog-children">
         <CatalogBlock v-for="entry in directEntries(root)" :key="entry.item.id" :item="entry.item" :mode="mode" :selected-id="selectedId" :editable="editable" @select="emit('select', $event)" @add="emit('add', $event)" @dragstart="emit('dragstart', $event, entry.item)" />
         <section v-for="child in children(root).filter(c => !search.trim() || childEntries(c).length)" :key="child.id" class="catalog-subgroup">
-          <button class="catalog-toggle catalog-toggle-child" :aria-expanded="isOpen(child.slug)" :aria-controls="`${mode}-subcategory-${child.slug}`" @click="toggle(child.slug)"><span class="catalog-arrow" :class="{open:isOpen(child.slug)}">▸</span><strong>{{ child.name }}</strong><span class="catalog-badge">{{ childEntries(child).length }}</span></button>
+          <button class="catalog-toggle catalog-toggle-child" :aria-expanded="isOpen(child.slug)" :aria-controls="`${mode}-subcategory-${child.slug}`" @click="toggle(child.slug)"><ChevronRightIcon class="ui-icon catalog-arrow" :class="{open:isOpen(child.slug)}" aria-hidden="true" /><strong>{{ child.name }}</strong><span class="catalog-badge">{{ childEntries(child).length }}</span></button>
           <div v-show="isOpen(child.slug)" :id="`${mode}-subcategory-${child.slug}`" class="catalog-children catalog-leaves">
             <CatalogBlock v-for="entry in childEntries(child)" :key="entry.item.id" :item="entry.item" :mode="mode" :selected-id="selectedId" :editable="editable" @select="emit('select', $event)" @add="emit('add', $event)" @dragstart="emit('dragstart', $event, entry.item)" />
           </div>
         </section>
       </div>
     </section>
-    <section v-if="uncategorized.length" class="catalog-group"><button class="catalog-toggle" :aria-expanded="isOpen('uncategorized')" :aria-controls="`${mode}-uncategorized`" @click="toggle('uncategorized')"><span class="catalog-arrow" :class="{open:isOpen('uncategorized')}">▸</span><strong>{{ t('uncategorized') }}</strong><span class="catalog-badge">{{ uncategorized.length }}</span></button><div v-show="isOpen('uncategorized')" :id="`${mode}-uncategorized`" class="catalog-children"><CatalogBlock v-for="entry in uncategorized" :key="entry.item.id" :item="entry.item" :mode="mode" :selected-id="selectedId" :editable="editable" @select="emit('select', $event)" @add="emit('add', $event)" @dragstart="emit('dragstart', $event, entry.item)" /></div></section>
+    <section v-if="uncategorized.length" class="catalog-group"><button class="catalog-toggle" :aria-expanded="isOpen('uncategorized')" :aria-controls="`${mode}-uncategorized`" @click="toggle('uncategorized')"><ChevronRightIcon class="ui-icon catalog-arrow" :class="{open:isOpen('uncategorized')}" aria-hidden="true" /><strong>{{ t('uncategorized') }}</strong><span class="catalog-badge">{{ uncategorized.length }}</span></button><div v-show="isOpen('uncategorized')" :id="`${mode}-uncategorized`" class="catalog-children"><CatalogBlock v-for="entry in uncategorized" :key="entry.item.id" :item="entry.item" :mode="mode" :selected-id="selectedId" :editable="editable" @select="emit('select', $event)" @add="emit('add', $event)" @dragstart="emit('dragstart', $event, entry.item)" /></div></section>
     <p v-if="search && !matches.length" class="hint catalog-empty">{{ t('noSearchResults') }}</p>
   </div>
 </template>

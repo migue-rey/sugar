@@ -8,6 +8,7 @@
     "build": "vue-tsc --noEmit && vite build"
   },
   "dependencies": {
+    "@heroicons/vue": "^2.2.0",
     "@vue-flow/background": "^1.3.2",
     "@vue-flow/controls": "^1.1.3",
     "@vue-flow/core": "^1.48.2",
