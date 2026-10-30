@@ -46,6 +46,7 @@ export function validateProject(text) {
   const edgeIds = new Set()
   for (const e of p.edges) {
     if (!object(e) || !string(e.id) || !string(e.source) || !string(e.target) || !string(e.sourcePort) || !string(e.targetPort)) fail('Conexión inválida')
+    if (e.route != null && (!object(e.route) || !Number.isFinite(e.route.x) || !Number.isFinite(e.route.y))) fail('La posición de la conexión debe tener coordenadas x e y válidas')
     if (edgeIds.has(e.id)) fail(`Conexión duplicada: ${e.id}`)
     edgeIds.add(e.id)
     const a = nodes.get(e.source), b = nodes.get(e.target)

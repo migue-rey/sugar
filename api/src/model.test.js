@@ -18,6 +18,12 @@ test('rejects incompatible protocols and excess connections', () => {
   doc.edges.push({ id: 'e2', source: 'mcu', sourcePort: 'i2c', target: 'sensor', targetPort: 'i2c' })
   assert.throws(() => validateProject(stringify(doc)), /Límite de conexiones/)
 })
+test('accepts connection route coordinates and rejects invalid ones', () => {
+  const doc = { name: 'Rutas', nodes: [node('mcu', controller), node('sensor', sensor)], edges: [{ id: 'e1', source: 'mcu', sourcePort: 'i2c', target: 'sensor', targetPort: 'i2c', route: { x: 180, y: -25 } }] }
+  assert.deepEqual(validateProject(stringify(doc)).edges[0].route, { x: 180, y: -25 })
+  doc.edges[0].route = { x: '180', y: -25 }
+  assert.throws(() => validateProject(stringify(doc)), /posición de la conexión/)
+})
 test('matches custom protocol text across ports', () => {
   const custom = protocol => ({ ...sensor, ports: [{ ...sensor.ports[0], protocol }] })
   const doc = { name: 'Personalizado', nodes: [node('a', custom('PAC')), node('b', custom('PAC'))], edges: [{ id: 'e1', source: 'a', sourcePort: 'i2c', target: 'b', targetPort: 'i2c' }] }
