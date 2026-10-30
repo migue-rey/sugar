@@ -55,3 +55,11 @@ test('accepts image URLs and rejects embedded or unsafe images', () => {
   assert.equal(validateBlock(stringify({ ...sensor, image: 'https://example.com/sensor.png' })).image, 'https://example.com/sensor.png')
   assert.throws(() => validateBlock(stringify({ ...sensor, image: 'javascript:alert(1)' })), /image debe ser/)
 })
+test('accepts datasheet URLs in block properties and rejects unsafe links', () => {
+  for (const url of ['https://example.com/datasheet.pdf', 'http://example.com/details']) {
+    assert.equal(validateBlock(stringify({ ...sensor, properties: { url, range: '0..100' } })).properties.url, url)
+  }
+  for (const url of ['javascript:alert(1)', '/local/path', 'not a URL', 42]) {
+    assert.throws(() => validateBlock(stringify({ ...sensor, properties: { url } })), /properties.url/)
+  }
+})

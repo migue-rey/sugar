@@ -23,6 +23,11 @@ export function validateBlock(text) {
     if (b.image.startsWith('https://')) { try { new URL(b.image) } catch { fail('URL de imagen inválida') } }
   }
   if (b.properties != null && !object(b.properties)) fail('properties debe ser un mapa')
+  if (b.properties?.url != null && b.properties.url !== '') {
+    if (typeof b.properties.url !== 'string' || b.properties.url.length > 2048) fail('properties.url debe ser una URL HTTP o HTTPS')
+    try { if (!['http:', 'https:'].includes(new URL(b.properties.url).protocol)) fail('properties.url debe ser una URL HTTP o HTTPS') }
+    catch { fail('properties.url debe ser una URL HTTP o HTTPS') }
+  }
   if (!Array.isArray(b.ports) || b.ports.length === 0) fail('El bloque requiere al menos un puerto')
   const ids = new Set()
   for (const p of b.ports) {
