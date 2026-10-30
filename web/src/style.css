@@ -60,3 +60,7 @@
 .shared-header a{text-decoration:none}
 .shared-canvas{position:relative;flex:1;min-height:600px;background:var(--bg)}
 @media(max-width:650px){.shared-header{padding:18px;align-items:flex-start;flex-direction:column}.shared-header h1{font-size:20px}}
+
+.gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px;margin-top:24px}.gallery-card{overflow:hidden;border:1px solid var(--border);border-radius:16px;background:var(--panel);box-shadow:0 8px 26px rgba(0,0,0,.08)}.gallery-preview{height:180px;display:flex;align-items:center;justify-content:center;background:var(--surface);padding:12px}.gallery-preview img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px}.gallery-info{display:grid;gap:10px;padding:15px}.gallery-info strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gallery-info small{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gallery-info input{width:100%;min-width:0;font-size:12px}.gallery-actions{display:flex;justify-content:space-between;align-items:center;gap:10px}
+
+.gallery-content{padding:0 48px 48px}@media(max-width:900px){.gallery-content{padding:0 30px 30px}}@media(max-width:600px){.gallery-content{padding:0 20px 20px}}

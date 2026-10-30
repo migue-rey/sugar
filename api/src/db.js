@@ -2,6 +2,7 @@ import pg from 'pg'
 import bcrypt from 'bcryptjs'
 import crypto from 'node:crypto'
 import { stringify } from './model.js'
+import { replaceEmbeddedImages } from './images.js'
 
 export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
 export const q = (sql, args = []) => pool.query(sql, args)
@@ -24,6 +25,7 @@ export async function signingSecret() {
 }
 export async function initDb() {
   await q(`CREATE TABLE IF NOT EXISTS users (id uuid PRIMARY KEY, email text UNIQUE NOT NULL, password_hash text NOT NULL, role text NOT NULL CHECK(role IN ('view','dev','Admin')), language text NOT NULL DEFAULT 'es', theme text NOT NULL DEFAULT 'dark', active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now())`)
+  await q(`CREATE TABLE IF NOT EXISTS images (id uuid PRIMARY KEY, name text NOT NULL, mime text NOT NULL, data bytea NOT NULL, created_by uuid REFERENCES users(id), created_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz)` )
   await q(`CREATE TABLE IF NOT EXISTS blocks (id uuid PRIMARY KEY, name text NOT NULL, latest_version integer NOT NULL DEFAULT 0, deleted_at timestamptz)`)
   await q(`CREATE TABLE IF NOT EXISTS block_versions (block_id uuid NOT NULL REFERENCES blocks(id), version integer NOT NULL, yaml text NOT NULL, author_id uuid REFERENCES users(id), summary text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(block_id, version))`)
   await q(`CREATE TABLE IF NOT EXISTS projects (id uuid PRIMARY KEY, name text NOT NULL, revision integer NOT NULL DEFAULT 0, yaml text NOT NULL, deleted_at timestamptz, created_at timestamptz NOT NULL DEFAULT now())`)
@@ -48,6 +50,25 @@ export async function initDb() {
     await q('INSERT INTO users(id,email,password_hash,role) VALUES($1,$2,$3,$4)', [crypto.randomUUID(), email.toLowerCase(), await bcrypt.hash(password, 12), 'Admin'])
     console.log(`Initial admin: ${email} / ${password}`)
     if (!process.env.ADMIN_PASSWORD) console.log('Save this generated password now; it is displayed only on first boot.')
+  }
+  // Convert current documents once; historical revisions remain intact for audit.
+  for (const row of (await q("SELECT id,revision,yaml,sync_repository,sync_branch FROM projects WHERE deleted_at IS NULL AND yaml LIKE '%data:image/%'")).rows) {
+    await transaction(async tx => {
+      const yaml = await replaceEmbeddedImages(row.yaml, 'project', tx)
+      if (yaml === row.yaml) return
+      const revision = row.revision + 1
+      await tx('UPDATE projects SET yaml=$2,revision=$3 WHERE id=$1', [row.id, yaml, revision])
+      await tx('INSERT INTO project_revisions(project_id,revision,yaml,summary) VALUES($1,$2,$3,$4)', [row.id, revision, yaml, 'Imágenes trasladadas a la galería'])
+    })
+  }
+  for (const row of (await q("SELECT b.id,b.latest_version,v.yaml FROM blocks b JOIN block_versions v ON v.block_id=b.id AND v.version=b.latest_version WHERE b.deleted_at IS NULL AND v.yaml LIKE '%data:image/%'")).rows) {
+    await transaction(async tx => {
+      const yaml = await replaceEmbeddedImages(row.yaml, 'block', tx)
+      if (yaml === row.yaml) return
+      const version = row.latest_version + 1
+      await tx('UPDATE blocks SET latest_version=$2 WHERE id=$1', [row.id, version])
+      await tx('INSERT INTO block_versions(block_id,version,yaml,summary) VALUES($1,$2,$3,$4)', [row.id, version, yaml, 'Imagen trasladada a la galería'])
+    })
   }
   const examples = await q('SELECT count(*)::int AS n FROM blocks')
   if (examples.rows[0].n === 0) {

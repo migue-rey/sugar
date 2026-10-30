@@ -18,13 +18,8 @@ export function validateBlock(text) {
   if (!object(b) || !string(b.name) || !string(b.function)) fail('El bloque requiere name y function')
   if (b.model != null && typeof b.model !== 'string') fail('model debe ser texto')
   if (b.image != null && b.image !== '') {
-    if (typeof b.image !== 'string') fail('image debe ser una URL HTTPS o una imagen incorporada')
-    if (b.image.startsWith('data:')) {
-      if (b.image.length > 1_500_000 || !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(b.image)) fail('Imagen incorporada inválida o demasiado grande')
-    } else {
-      try { if (b.image.length > 2048 || new URL(b.image).protocol !== 'https:') fail('image debe ser una URL HTTPS') }
-      catch { fail('image debe ser una URL HTTPS') }
-    }
+    if (typeof b.image !== 'string' || b.image.length > 2048 || !(b.image.startsWith('https://') || /^\/api\/images\/[0-9a-f-]{36}\/content$/.test(b.image))) fail('image debe ser una URL HTTPS o una ruta de la galería')
+    if (b.image.startsWith('https://')) { try { new URL(b.image) } catch { fail('URL de imagen inválida') } }
   }
   if (b.properties != null && !object(b.properties)) fail('properties debe ser un mapa')
   if (!Array.isArray(b.ports) || b.ports.length === 0) fail('El bloque requiere al menos un puerto')

@@ -7,6 +7,7 @@ import { createPatch } from 'diff'
 import { q, initDb, transaction, signingSecret } from './db.js'
 import { validateBlock, validateProject, stringify } from './model.js'
 import { enqueue, startSync, syncOne } from './github.js'
+import { imageBytes, replaceEmbeddedImages } from './images.js'
 
 const app = express()
 app.use(express.json({ limit: '3mb' }))
@@ -40,6 +41,11 @@ function repositorySettings(body) {
 }
 
 app.get('/api/health', (_, res) => res.json({ ok: true }))
+app.get('/api/images/:id/content', asyncRoute(async (req, res) => {
+  const { rows } = await q('SELECT mime,data FROM images WHERE id=$1 AND deleted_at IS NULL', [req.params.id])
+  if (!rows[0]) error(404, 'Imagen no encontrada')
+  res.set('X-Content-Type-Options', 'nosniff').set('Cache-Control', 'public, max-age=3600').type(rows[0].mime).send(rows[0].data)
+}))
 app.get('/api/public/projects/:id', asyncRoute(async (req, res) => {
   const { rows } = await q(`SELECT ${projectFields} ${projectJoin} WHERE p.id=$1 AND p.visibility='public' AND p.deleted_at IS NULL`, [req.params.id])
   if (!rows[0]) error(404, 'Proyecto público no encontrado')
@@ -73,6 +79,25 @@ app.use('/api', asyncRoute(async (req, _res, next) => {
   } catch (e) { next(e) }
 }))
 
+app.get('/api/images', asyncRoute(async (_req, res) => {
+  const { rows } = await q('SELECT i.id,i.name,i.mime,i.created_at,u.email AS creator FROM images i LEFT JOIN users u ON u.id=i.created_by WHERE i.deleted_at IS NULL ORDER BY i.created_at DESC')
+  res.json(rows.map(i => ({ ...i, url: `/api/images/${i.id}/content` })))
+}))
+app.post('/api/images', asyncRoute(async (req, res) => {
+  requireEdit(req)
+  const name = requiredText(req.body.name, 'Nombre').slice(0, 120)
+  const mime = String(req.body.mime || '')
+  const bytes = imageBytes(mime, req.body.data)
+  const id = crypto.randomUUID()
+  await q('INSERT INTO images(id,name,mime,data,created_by) VALUES($1,$2,$3,$4,$5)', [id, name, mime, bytes, req.user.id])
+  res.status(201).json({ id, name, mime, url: `/api/images/${id}/content` })
+}))
+app.delete('/api/images/:id', asyncRoute(async (req, res) => {
+  requireAdmin(req)
+  const result = await q('UPDATE images SET deleted_at=now() WHERE id=$1 AND deleted_at IS NULL', [req.params.id])
+  if (!result.rowCount) error(404, 'Imagen no encontrada')
+  res.json({ ok: true })
+}))
 app.get('/api/me', (req, res) => res.json(req.user))
 app.post('/api/validate', asyncRoute(async (req, res) => {
   if (req.body.kind === 'project') validateProject(req.body.yaml)
@@ -153,13 +178,14 @@ app.post('/api/blocks/:id/restore', asyncRoute(async (req, res) => {
   if (!Number.isInteger(wanted) || !Number.isInteger(expected)) error(400, 'Versión inválida')
   const { rows } = await q('SELECT yaml FROM block_versions WHERE block_id=$1 AND version=$2', [req.params.id, wanted])
   if (!rows[0]) error(404, 'Versión no encontrada')
-  const block = validateBlock(rows[0].yaml)
   const version = await transaction(async tx => {
+    const yaml = await replaceEmbeddedImages(rows[0].yaml, 'block', tx)
+    const block = validateBlock(yaml)
     const saved = await tx('UPDATE blocks SET name=$3,latest_version=latest_version+1 WHERE id=$1 AND latest_version=$2 AND deleted_at IS NULL RETURNING latest_version', [req.params.id, expected, block.name])
     if (!saved.rows[0]) error(409, 'El bloque cambió; recarga antes de restaurar')
     const version = saved.rows[0].latest_version
-    await tx('INSERT INTO block_versions(block_id,version,yaml,author_id,summary) VALUES($1,$2,$3,$4,$5)', [req.params.id, version, rows[0].yaml, req.user.id, `Restaurada versión ${wanted}`])
-    await enqueue('block', req.params.id, version, rows[0].yaml, tx)
+    await tx('INSERT INTO block_versions(block_id,version,yaml,author_id,summary) VALUES($1,$2,$3,$4,$5)', [req.params.id, version, yaml, req.user.id, `Restaurada versión ${wanted}`])
+    await enqueue('block', req.params.id, version, yaml, tx)
     return version
   })
   res.json({ version })
@@ -286,13 +312,14 @@ app.post('/api/projects/:id/restore', asyncRoute(async (req, res) => {
   if (!Number.isInteger(wanted) || !Number.isInteger(expected)) error(400, 'Revisión inválida')
   const { rows } = await q('SELECT yaml FROM project_revisions WHERE project_id=$1 AND revision=$2', [req.params.id, wanted])
   if (!rows[0]) error(404, 'Revisión no encontrada')
-  const doc = validateProject(rows[0].yaml)
   const revision = await transaction(async tx => {
-    const saved = await tx('UPDATE projects SET name=$3,yaml=$4,revision=revision+1 WHERE id=$1 AND revision=$2 AND deleted_at IS NULL RETURNING revision', [req.params.id, expected, doc.name, rows[0].yaml])
+    const yaml = await replaceEmbeddedImages(rows[0].yaml, 'project', tx)
+    const doc = validateProject(yaml)
+    const saved = await tx('UPDATE projects SET name=$3,yaml=$4,revision=revision+1 WHERE id=$1 AND revision=$2 AND deleted_at IS NULL RETURNING revision', [req.params.id, expected, doc.name, yaml])
     if (!saved.rows[0]) error(409, 'El proyecto cambió; recarga antes de restaurar')
     const revision = saved.rows[0].revision
-    await tx('INSERT INTO project_revisions(project_id,revision,yaml,author_id,summary) VALUES($1,$2,$3,$4,$5)', [req.params.id, revision, rows[0].yaml, req.user.id, `Restaurada revisión ${wanted}`])
-    if (current.sync_repository) await enqueue('project', req.params.id, revision, rows[0].yaml, tx, { repository: current.sync_repository, branch: current.sync_branch })
+    await tx('INSERT INTO project_revisions(project_id,revision,yaml,author_id,summary) VALUES($1,$2,$3,$4,$5)', [req.params.id, revision, yaml, req.user.id, `Restaurada revisión ${wanted}`])
+    if (current.sync_repository) await enqueue('project', req.params.id, revision, yaml, tx, { repository: current.sync_repository, branch: current.sync_branch })
     return revision
   })
   res.json({ revision })

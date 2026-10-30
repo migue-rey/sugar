@@ -22,8 +22,10 @@ test('rejects malformed blocks and duplicate YAML keys', () => {
   assert.throws(() => validateBlock('name: Test\nname: Again\n'), /name/)
   assert.throws(() => validateBlock(stringify({ name: 'Test', function: 'x', ports: [] })), /puerto/)
 })
-test('accepts portable images and rejects unsafe image URLs', () => {
-  assert.equal(validateBlock(stringify({ ...sensor, image: 'data:image/png;base64,aGVsbG8=' })).image.startsWith('data:image/png'), true)
+test('accepts image URLs and rejects embedded or unsafe images', () => {
+  const galleryUrl = '/api/images/123e4567-e89b-42d3-a456-426614174000/content'
+  assert.equal(validateBlock(stringify({ ...sensor, image: galleryUrl })).image, galleryUrl)
+  assert.throws(() => validateBlock(stringify({ ...sensor, image: 'data:image/png;base64,aGVsbG8=' })), /image debe ser/)
   assert.equal(validateBlock(stringify({ ...sensor, image: 'https://example.com/sensor.png' })).image, 'https://example.com/sensor.png')
   assert.throws(() => validateBlock(stringify({ ...sensor, image: 'javascript:alert(1)' })), /image debe ser/)
 })
