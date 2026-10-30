@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount } from 'vue'
 import { BaseEdge, getSmoothStepPath, useVueFlow, type EdgeProps } from '@vue-flow/core'
 
 type Point = { x: number; y: number }
-const props = defineProps<EdgeProps<{ route?: Point; editable?: boolean }>>()
+const props = defineProps<EdgeProps<{ route?: Point; editable?: boolean; color?: string }>>()
 const { screenToFlowCoordinate, updateEdgeData } = useVueFlow()
 const automatic = computed(() => getSmoothStepPath({
   sourceX: props.sourceX, sourceY: props.sourceY, sourcePosition: props.sourcePosition,
@@ -41,7 +41,7 @@ onBeforeUnmount(stop)
 </script>
 
 <template>
-  <BaseEdge :id="id" :path="path" :label="label" :label-x="control.x" :label-y="control.y - 20" :marker-end="markerEnd" :interaction-width="24" />
+  <BaseEdge :id="id" :path="path" :label="label" :label-x="control.x" :label-y="control.y - 20" :marker-end="markerEnd" :interaction-width="24" :style="data?.color ? { stroke: data.color } : undefined" />
   <circle v-if="data?.editable && selected" class="edge-route-handle-hit" :cx="control.x" :cy="control.y" r="16" @pointerdown="start" />
   <circle v-if="data?.editable && selected" class="edge-route-handle" :cx="control.x" :cy="control.y" r="7" @pointerdown="start" />
 </template>

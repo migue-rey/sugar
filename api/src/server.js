@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken'
 import crypto from 'node:crypto'
 import { createPatch } from 'diff'
 import { q, initDb, transaction, signingSecret } from './db.js'
-import { validateBlock, validateProject, stringify } from './model.js'
+import { validateBlock, validateProject, stringify, normalizeColorLiterals } from './model.js'
 import { enqueue, startSync, syncOne } from './github.js'
 import { imageBytes, replaceEmbeddedImages } from './images.js'
 
@@ -148,7 +148,7 @@ app.get('/api/blocks', asyncRoute(async (_req, res) => {
 }))
 app.post('/api/blocks', asyncRoute(async (req, res) => {
   requireEdit(req)
-  const yaml = requiredText(req.body.yaml, 'YAML'), block = validateBlock(yaml), id = crypto.randomUUID(), summary = req.body.summary || 'Bloque creado'
+  const yaml = normalizeColorLiterals(requiredText(req.body.yaml, 'YAML')), block = validateBlock(yaml), id = crypto.randomUUID(), summary = req.body.summary || 'Bloque creado'
   await transaction(async tx => {
     await tx('INSERT INTO blocks(id,name,latest_version) VALUES($1,$2,1)', [id, block.name])
     await tx('INSERT INTO block_versions(block_id,version,yaml,author_id,summary) VALUES($1,1,$2,$3,$4)', [id, yaml, req.user.id, summary])
@@ -179,7 +179,7 @@ app.post('/api/blocks/:id/restore', asyncRoute(async (req, res) => {
   const { rows } = await q('SELECT yaml FROM block_versions WHERE block_id=$1 AND version=$2', [req.params.id, wanted])
   if (!rows[0]) error(404, 'Versión no encontrada')
   const version = await transaction(async tx => {
-    const yaml = await replaceEmbeddedImages(rows[0].yaml, 'block', tx)
+    const yaml = normalizeColorLiterals(await replaceEmbeddedImages(rows[0].yaml, 'block', tx))
     const block = validateBlock(yaml)
     const saved = await tx('UPDATE blocks SET name=$3,latest_version=latest_version+1 WHERE id=$1 AND latest_version=$2 AND deleted_at IS NULL RETURNING latest_version', [req.params.id, expected, block.name])
     if (!saved.rows[0]) error(409, 'El bloque cambió; recarga antes de restaurar')
@@ -192,7 +192,7 @@ app.post('/api/blocks/:id/restore', asyncRoute(async (req, res) => {
 }))
 app.put('/api/blocks/:id', asyncRoute(async (req, res) => {
   requireEdit(req)
-  const yaml = requiredText(req.body.yaml, 'YAML'), block = validateBlock(yaml), expected = Number(req.body.expectedVersion)
+  const yaml = normalizeColorLiterals(requiredText(req.body.yaml, 'YAML')), block = validateBlock(yaml), expected = Number(req.body.expectedVersion)
   if (!Number.isInteger(expected) || expected < 1) error(400, 'Versión esperada inválida')
   const version = await transaction(async tx => {
     const { rows } = await tx('UPDATE blocks SET name=$3,latest_version=latest_version+1 WHERE id=$1 AND latest_version=$2 AND deleted_at IS NULL RETURNING latest_version', [req.params.id, expected, block.name])
@@ -211,7 +211,7 @@ app.get('/api/projects', asyncRoute(async (req, res) => {
 }))
 app.post('/api/projects', asyncRoute(async (req, res) => {
   requireEdit(req)
-  const yaml = requiredText(req.body.yaml || stringify({ name: req.body.name || 'Nuevo proyecto', nodes: [], edges: [] }), 'YAML')
+  const yaml = normalizeColorLiterals(requiredText(req.body.yaml || stringify({ name: req.body.name || 'Nuevo proyecto', nodes: [], edges: [] }), 'YAML'))
   const project = validateProject(yaml), id = crypto.randomUUID()
   await transaction(async tx => {
     await tx('INSERT INTO projects(id,name,revision,yaml,created_by) VALUES($1,$2,1,$3,$4)', [id, project.name, yaml, req.user.id])
@@ -274,7 +274,7 @@ app.get('/api/projects/:id/export', asyncRoute(async (req, res) => {
 }))
 app.put('/api/projects/:id', asyncRoute(async (req, res) => {
   const current = await requireProject(req, true)
-  const yaml = requiredText(req.body.yaml, 'YAML'), project = validateProject(yaml), expected = Number(req.body.expectedRevision)
+  const yaml = normalizeColorLiterals(requiredText(req.body.yaml, 'YAML')), project = validateProject(yaml), expected = Number(req.body.expectedRevision)
   if (!Number.isInteger(expected) || expected < 1) error(400, 'Revisión esperada inválida')
   const revision = await transaction(async tx => {
     const { rows } = await tx('UPDATE projects SET name=$3,yaml=$4,revision=revision+1 WHERE id=$1 AND revision=$2 AND deleted_at IS NULL RETURNING revision', [req.params.id, expected, project.name, yaml])
@@ -313,7 +313,7 @@ app.post('/api/projects/:id/restore', asyncRoute(async (req, res) => {
   const { rows } = await q('SELECT yaml FROM project_revisions WHERE project_id=$1 AND revision=$2', [req.params.id, wanted])
   if (!rows[0]) error(404, 'Revisión no encontrada')
   const revision = await transaction(async tx => {
-    const yaml = await replaceEmbeddedImages(rows[0].yaml, 'project', tx)
+    const yaml = normalizeColorLiterals(await replaceEmbeddedImages(rows[0].yaml, 'project', tx))
     const doc = validateProject(yaml)
     const saved = await tx('UPDATE projects SET name=$3,yaml=$4,revision=revision+1 WHERE id=$1 AND revision=$2 AND deleted_at IS NULL RETURNING revision', [req.params.id, expected, doc.name, yaml])
     if (!saved.rows[0]) error(409, 'El proyecto cambió; recarga antes de restaurar')

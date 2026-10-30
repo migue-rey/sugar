@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import YAML from 'yaml'
+import { normalizeColorLiterals } from './model.js'
 
 const mimeTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 export function imageBytes(mime, data) {
@@ -12,7 +13,7 @@ export function imageBytes(mime, data) {
 }
 export async function replaceEmbeddedImages(yaml, kind, tx) {
   if (!yaml.includes('data:image/')) return yaml
-  const doc = YAML.parse(yaml)
+  const doc = YAML.parse(normalizeColorLiterals(yaml))
   const blocks = kind === 'project' ? doc.nodes?.map(n => n.block) : [doc]
   if (!Array.isArray(blocks)) return yaml
   let changed = false

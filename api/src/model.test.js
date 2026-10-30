@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { stringify, validateBlock, validateProject } from './model.js'
+import { stringify, validateBlock, validateProject, normalizeColorLiterals } from './model.js'
 
 const controller = { name: 'Controlador', function: 'Procesar', ports: [{ id: 'i2c', label: 'I²C', protocol: 'I2C', direction: 'bidirectional', maxConnections: 2 }] }
 const sensor = { name: 'Sensor', function: 'Medir', ports: [{ id: 'i2c', label: 'I²C', protocol: 'I2C', direction: 'bidirectional', maxConnections: 1 }] }
@@ -17,6 +17,14 @@ test('rejects incompatible protocols and excess connections', () => {
   doc.nodes[1].block = sensor
   doc.edges.push({ id: 'e2', source: 'mcu', sourcePort: 'i2c', target: 'sensor', targetPort: 'i2c' })
   assert.throws(() => validateProject(stringify(doc)), /Límite de conexiones/)
+})
+test('validates optional RGB hex colors on ports', () => {
+  const colored = { ...sensor, ports: [{ ...sensor.ports[0], color: '#FF0000' }] }
+  assert.equal(validateBlock(stringify(colored)).ports[0].color, '#FF0000')
+  assert.throws(() => validateBlock(stringify({ ...sensor, ports: [{ ...sensor.ports[0], color: '#F00' }] })), /RGB hexadecimal/)
+  const unquoted = 'name: Sensor\nfunction: Medir\nports:\n  - id: power\n    label: 3.3V\n    protocol: POWER\n    direction: out\n    color: #FF0000\n'
+  assert.equal(validateBlock(unquoted).ports[0].color, '#FF0000')
+  assert.match(normalizeColorLiterals(unquoted), /color: "#FF0000"/)
 })
 test('accepts connection route coordinates and rejects invalid ones', () => {
   const doc = { name: 'Rutas', nodes: [node('mcu', controller), node('sensor', sensor)], edges: [{ id: 'e1', source: 'mcu', sourcePort: 'i2c', target: 'sensor', targetPort: 'i2c', route: { x: 180, y: -25 } }] }

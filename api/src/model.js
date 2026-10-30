@@ -5,9 +5,11 @@ const fail = (message) => { throw Object.assign(new Error(message), { status: 40
 const object = (v) => v && typeof v === 'object' && !Array.isArray(v)
 const string = (v) => typeof v === 'string' && v.trim().length > 0
 
+export function normalizeColorLiterals(text) { return text.replace(/^([ \t]*color:[ \t]*)(#[0-9a-fA-F]{6})(?=[ \t]*(?:#.*)?\r?$)/gm, '$1"$2"') }
+
 export function parseYaml(text) {
   if (typeof text !== 'string' || text.length > 2_000_000) fail('YAML vacío o demasiado grande')
-  const doc = YAML.parseDocument(text, { uniqueKeys: true, maxAliasCount: 100 })
+  const doc = YAML.parseDocument(normalizeColorLiterals(text), { uniqueKeys: true, maxAliasCount: 100 })
   if (doc.errors.length) fail(doc.errors[0].message)
   return doc.toJS({ maxAliasCount: 100 })
 }
@@ -27,6 +29,7 @@ export function validateBlock(text) {
     if (!object(p) || !string(p.id) || !string(p.label) || !string(p.protocol) || !directions.includes(p.direction)) fail('Puerto inválido: id, label, protocol y direction son obligatorios')
     if (ids.has(p.id)) fail(`Puerto duplicado: ${p.id}`)
     ids.add(p.id)
+    if ('color' in p && (typeof p.color !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(p.color))) fail('color debe ser RGB hexadecimal, por ejemplo "#FF0000"')
     if (p.maxConnections != null && (!Number.isInteger(p.maxConnections) || p.maxConnections < 1)) fail('maxConnections debe ser un entero positivo')
   }
   return b

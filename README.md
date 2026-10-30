@@ -44,9 +44,10 @@ ports:
     protocol: POWER
     direction: in
     maxConnections: 1
+    color: "#FF0000"
 ```
 
-A port can use any non-empty protocol text, such as `I2C`, `CSI`, `LVDS`, or `PAC`. Two ports connect when their protocol text matches after trimming outer whitespace; matching is case-sensitive. Directions are `in`, `out`, and `bidirectional`. The server also validates direction, port existence and connection limits. The YAML editor accepts an unfinished draft but will not apply or save it until validation succeeds.
+A port can use any non-empty protocol text, such as `I2C`, `CSI`, `LVDS`, or `PAC`. Two ports connect when their protocol text matches after trimming outer whitespace; matching is case-sensitive. Directions are `in`, `out`, and `bidirectional`. The server also validates direction, port existence and connection limits. A port may set `color` to a six-digit RGB hexadecimal value (for example `"#FF0000"`). The source port color paints the connection; if it has no color, the target port color is used. Quoted values follow standard YAML. The editor also accepts an unquoted six-digit color such as `color: #FF0000` and quotes it when the block is saved. The YAML editor accepts an unfinished draft but will not apply or save it until validation succeeds.
 
 ## Roles
 
