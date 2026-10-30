@@ -1,0 +1,191 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import { VueFlow, Handle, Position, useVueFlow, type Connection } from '@vue-flow/core'
+import { Background } from '@vue-flow/background'
+import { Controls } from '@vue-flow/controls'
+import { toPng, toSvg } from 'html-to-image'
+import YAML from 'yaml'
+import { messages } from './i18n'
+import type { Block, Diagram, DiagramNode, LibraryItem, ProjectItem, Revision, User } from './types'
+
+const user = ref<User | null>(null)
+const sidebarCollapsed = ref(localStorage.getItem('sidebarCollapsed') === 'true' || (localStorage.getItem('sidebarCollapsed') === null && window.innerWidth < 1200))
+const paletteCollapsed = ref(false)
+watch(sidebarCollapsed, value => localStorage.setItem('sidebarCollapsed', String(value)))
+const page = ref<'projects' | 'editor' | 'library' | 'users' | 'settings'>('projects')
+const busy = ref(false), notice = ref(''), errorMessage = ref('')
+const loginEmail = ref('admin@local'), loginPassword = ref('')
+const projects = ref<ProjectItem[]>([]), blocks = ref<LibraryItem[]>([]), users = ref<User[]>([])
+const project = ref<ProjectItem | null>(null)
+const diagram = ref<Diagram>({ name: '', nodes: [], edges: [] })
+const flowNodes = ref<any[]>([]), flowEdges = ref<any[]>([])
+const selectedNode = ref<string | null>(null), selectedEdge = ref<string | null>(null)
+const panel = ref<'properties' | 'yaml' | 'history'>('properties')
+const yamlDraft = ref(''), yamlDirty = ref(false), yamlError = ref(''), changeSummary = ref('')
+const revisions = ref<Revision[]>([]), diffText = ref(''), compareFrom = ref<number | null>(null), compareTo = ref<number | null>(null)
+const blockSelection = ref<LibraryItem | null>(null), blockDraft = ref(''), blockSummary = ref(''), blockVersions = ref<Revision[]>([])
+const blockCompareFrom = ref<number | null>(null), blockCompareTo = ref<number | null>(null), blockDiffText = ref('')
+const newProjectName = ref(''), showNewProject = ref(false), showNewBlock = ref(false)
+const createEmail = ref(''), createPassword = ref(''), createRole = ref<'view' | 'dev' | 'Admin'>('dev')
+const currentPassword = ref(''), newPassword = ref('')
+const github = ref({ owner: '', repo: '', branch: 'main' }), credentialsReady = ref(false), syncStatus = ref<any>({ counts: [], recent: [] })
+const importInput = ref<HTMLInputElement | null>(null)
+const { screenToFlowCoordinate, fitView } = useVueFlow()
+watch([sidebarCollapsed, paletteCollapsed], () => { if (page.value === 'editor') setTimeout(() => fitView({ padding: 0.2, maxZoom: 1 }), 250) })
+const lang = computed(() => user.value?.language || 'es')
+const t = (key: string) => (messages[lang.value] as Record<string, string>)[key] || key
+const editable = computed(() => user.value?.role === 'dev' || user.value?.role === 'Admin')
+const admin = computed(() => user.value?.role === 'Admin')
+const selected = computed(() => diagram.value.nodes.find(n => n.id === selectedNode.value) || null)
+
+async function api(path: string, method = 'GET', body?: unknown, raw = false): Promise<any> {
+  const res = await fetch('/api' + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({}))
+    throw new Error(res.status === 409 ? t('conflict') : payload.error || `HTTP ${res.status}`)
+  }
+  return raw ? res.text() : res.json()
+}
+async function run(fn: () => Promise<void>) {
+  busy.value = true; errorMessage.value = ''; notice.value = ''
+  try { await fn() } catch (e: any) { errorMessage.value = e.message || String(e) } finally { busy.value = false }
+}
+async function loadBasics() { projects.value = await api('/projects'); blocks.value = await api('/blocks') }
+async function signIn() { await run(async () => { user.value = await api('/login', 'POST', { email: loginEmail.value, password: loginPassword.value }); await loadBasics(); page.value = 'projects'; loginPassword.value = '' }) }
+async function signOut() { await api('/logout', 'POST'); user.value = null; project.value = null; page.value = 'projects' }
+async function updatePreference(field: 'language' | 'theme', value: string) { if (!user.value) return; await run(async () => { await api('/me', 'PATCH', { [field]: value }); if (user.value) user.value = { ...user.value, [field]: value } as User }) }
+async function changeOwnPassword() { await run(async () => { await api('/me/password', 'POST', { currentPassword: currentPassword.value, newPassword: newPassword.value }); currentPassword.value = ''; newPassword.value = ''; notice.value = t('saved') }) }
+
+function graphFromDiagram() {
+  flowNodes.value = diagram.value.nodes.map(n => ({ id: n.id, type: 'hardware', position: { ...n.position }, data: { block: n.block, libraryVersion: n.libraryVersion } }))
+  flowEdges.value = diagram.value.edges.map(e => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourcePort, targetHandle: e.targetPort, type: 'smoothstep', animated: false, label: findProtocol(e) }))
+  setTimeout(() => fitView({ padding: 0.25, maxZoom: 1 }), 50)
+}
+function findProtocol(e: Diagram['edges'][number]) { return diagram.value.nodes.find(n => n.id === e.source)?.block.ports.find(p => p.id === e.sourcePort)?.protocol || '' }
+function safeImage(value?: string) { return typeof value === 'string' && (value.startsWith('https://') || /^data:image\/(png|jpeg|webp);base64,/.test(value)) ? value : '' }
+function imageFromYaml(yaml: string) { try { return safeImage((YAML.parse(yaml) as Block)?.image) } catch { return '' } }
+async function fileImage(file?: File) {
+  if (!file) return ''
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 1_000_000) throw new Error(t('imageLimit'))
+  return await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error(t('imageLimit'))); reader.readAsDataURL(file) })
+}
+function setBlockImage(value: string) { try { const parsed = YAML.parse(blockDraft.value) as Block; parsed.image = value; blockDraft.value = YAML.stringify(parsed, { lineWidth: 0 }) } catch (e: any) { errorMessage.value = e.message } }
+async function uploadBlockImage(file?: File) { if (!file) return; await run(async () => setBlockImage(await fileImage(file))) }
+async function uploadNodeImage(file?: File) { if (!file) return; await run(async () => updateNodeField('image', await fileImage(file))) }
+function syncFromGraph() {
+  if (!project.value) return
+  const positions = new Map(flowNodes.value.map(n => [n.id, n.position]))
+  diagram.value.nodes = diagram.value.nodes.filter(n => positions.has(n.id)).map(n => ({ ...n, position: positions.get(n.id) || n.position }))
+  diagram.value.edges = flowEdges.value.map(e => ({ id: e.id, source: e.source, target: e.target, sourcePort: e.sourceHandle, targetPort: e.targetHandle }))
+  if (!yamlDirty.value) yamlDraft.value = YAML.stringify(diagram.value, { lineWidth: 0 })
+}
+watch(flowNodes, syncFromGraph, { deep: true })
+watch(flowEdges, syncFromGraph, { deep: true })
+async function openProject(id: string) { await run(async () => {
+  project.value = await api('/projects/' + id)
+  diagram.value = YAML.parse(project.value!.yaml || '') as Diagram
+  yamlDraft.value = project.value!.yaml || ''; yamlDirty.value = false; yamlError.value = ''; selectedNode.value = null; selectedEdge.value = null; panel.value = 'properties'; page.value = 'editor'; graphFromDiagram(); await loadRevisions()
+}) }
+async function createProject() { await run(async () => { const yaml = YAML.stringify({ name: newProjectName.value.trim() || t('newProject'), nodes: [], edges: [] }); const made = await api('/projects', 'POST', { yaml }); showNewProject.value = false; newProjectName.value = ''; await loadBasics(); await openProject(made.id) }) }
+async function importProject(file?: File) { if (!file) return; await run(async () => { const yaml = await file.text(); await api('/validate', 'POST', { kind: 'project', yaml }); const made = await api('/projects', 'POST', { yaml, summary: 'Imported YAML' }); await loadBasics(); await openProject(made.id) }) }
+async function saveProject() { if (!project.value || !editable.value) return; await run(async () => {
+  if (yamlDirty.value) throw new Error(t('invalid'))
+  syncFromGraph()
+  const yaml = YAML.stringify(diagram.value, { lineWidth: 0 })
+  await api('/validate', 'POST', { kind: 'project', yaml })
+  const saved = await api('/projects/' + project.value!.id, 'PUT', { yaml, expectedRevision: project.value!.revision, summary: changeSummary.value.trim() || undefined })
+  project.value!.revision = saved.revision; project.value!.yaml = yaml; yamlDraft.value = yaml; changeSummary.value = ''; notice.value = t('saved'); await loadRevisions(); await loadBasics()
+}) }
+async function applyYaml() { await run(async () => {
+  await api('/validate', 'POST', { kind: 'project', yaml: yamlDraft.value })
+  diagram.value = YAML.parse(yamlDraft.value) as Diagram
+  yamlDirty.value = false; yamlError.value = ''; graphFromDiagram()
+}) }
+function onYamlInput() { yamlDirty.value = true; yamlError.value = '' }
+function makeNode(item: LibraryItem, position?: { x: number; y: number }) {
+  if (!editable.value) return
+  const block = YAML.parse(item.yaml) as Block
+  const node: DiagramNode = { id: crypto.randomUUID(), position: position || { x: 60 + (diagram.value.nodes.length % 3) * 250, y: 80 + Math.floor(diagram.value.nodes.length / 3) * 220 }, block, libraryId: item.id, libraryVersion: item.latest_version }
+  diagram.value.nodes.push(node)
+  flowNodes.value = [...flowNodes.value, { id: node.id, type: 'hardware', position: node.position, data: { block: node.block, libraryVersion: node.libraryVersion } }]
+  selectedNode.value = node.id; panel.value = 'properties'; syncFromGraph()
+  setTimeout(() => fitView({ padding: 0.2, maxZoom: 1 }), 50)
+}
+function dragStart(event: DragEvent, item: LibraryItem) { if (editable.value) event.dataTransfer?.setData('application/hardware-block', item.id) }
+function dropBlock(event: DragEvent) { event.preventDefault(); const id = event.dataTransfer?.getData('application/hardware-block'); const item = blocks.value.find(b => b.id === id); if (item) makeNode(item, screenToFlowCoordinate({ x: event.clientX, y: event.clientY })) }
+async function connect(edge: Connection) {
+  if (!editable.value || !edge.source || !edge.target || !edge.sourceHandle || !edge.targetHandle) return
+  const candidate = { id: crypto.randomUUID(), source: edge.source, target: edge.target, sourcePort: edge.sourceHandle, targetPort: edge.targetHandle }
+  const next = { ...diagram.value, edges: [...diagram.value.edges, candidate] }
+  await run(async () => { await api('/validate', 'POST', { kind: 'project', yaml: YAML.stringify(next) }); diagram.value.edges.push(candidate); flowEdges.value.push({ id: candidate.id, source: candidate.source, target: candidate.target, sourceHandle: candidate.sourcePort, targetHandle: candidate.targetPort, type: 'smoothstep', label: findProtocol(candidate) }); selectedEdge.value = candidate.id; selectedNode.value = null })
+}
+function removeNode() { if (!editable.value || !selectedNode.value) return; const id = selectedNode.value; diagram.value.nodes = diagram.value.nodes.filter(n => n.id !== id); flowNodes.value = flowNodes.value.filter(n => n.id !== id); flowEdges.value = flowEdges.value.filter(e => e.source !== id && e.target !== id); selectedNode.value = null; syncFromGraph() }
+function removeEdge() { if (!editable.value || !selectedEdge.value) return; flowEdges.value = flowEdges.value.filter(e => e.id !== selectedEdge.value); selectedEdge.value = null; syncFromGraph() }
+function updateNodeField(field: 'name' | 'function' | 'model' | 'image', value: string) { if (!selected.value || !editable.value) return; selected.value.block[field] = value; const n = flowNodes.value.find(x => x.id === selectedNode.value); if (n) n.data.block = { ...selected.value.block }; syncFromGraph() }
+async function updateNodeToLatest() { if (!selected.value?.libraryId || !editable.value) return; const item = blocks.value.find(b => b.id === selected.value?.libraryId); if (!item) return; selected.value.block = YAML.parse(item.yaml); selected.value.libraryVersion = item.latest_version; graphFromDiagram() }
+
+async function loadRevisions() { if (project.value) revisions.value = await api(`/projects/${project.value.id}/revisions`) }
+async function compareRevisions() { if (!project.value || compareFrom.value == null || compareTo.value == null) return; await run(async () => { diffText.value = await api(`/projects/${project.value!.id}/diff?from=${compareFrom.value}&to=${compareTo.value}`, 'GET', undefined, true) }) }
+async function restoreRevision(revision: number) { if (!project.value || !editable.value) return; await run(async () => { await api(`/projects/${project.value!.id}/restore`, 'POST', { revision, expectedRevision: project.value!.revision }); await openProject(project.value!.id) }) }
+async function deleteProject(id: string) { if (!admin.value || !confirm(t('deleteConfirm'))) return; await run(async () => { await api(`/projects/${id}`, 'DELETE'); if (project.value?.id === id) { project.value = null; page.value = 'projects' }; await loadBasics() }) }
+function download(name: string, data: string, mime: string) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000) }
+function exportYaml() { if (project.value) download(`${project.value.name}.yaml`, YAML.stringify(diagram.value, { lineWidth: 0 }), 'text/yaml') }
+async function exportImage(format: 'svg' | 'png') { const element = document.querySelector('.canvas .vue-flow') as HTMLElement; if (!element || !project.value) return; await run(async () => { const data = format === 'svg' ? await toSvg(element, { backgroundColor: '#ffffff' }) : await toPng(element, { backgroundColor: '#ffffff', pixelRatio: 2 }); const a = document.createElement('a'); a.href = data; a.download = `${project.value!.name}.${format}`; a.click() }) }
+
+async function openLibrary() { await run(async () => { await loadBasics(); page.value = 'library'; if (blockSelection.value) await selectBlock(blockSelection.value.id) }) }
+async function selectBlock(id: string) { const item = blocks.value.find(b => b.id === id); if (!item) return; blockSelection.value = item; blockDraft.value = item.yaml; blockVersions.value = await api(`/blocks/${id}/versions`) }
+function newBlock() { blockSelection.value = null; showNewBlock.value = true; blockDraft.value = YAML.stringify({ name: lang.value === 'es' ? 'Nuevo bloque' : 'New block', function: '', model: '', properties: {}, ports: [{ id: 'i2c', label: 'I²C', protocol: 'I2C', direction: 'bidirectional', maxConnections: 1 }] }); blockVersions.value = [] }
+async function saveBlock() { if (!editable.value) return; await run(async () => { await api('/validate', 'POST', { kind: 'block', yaml: blockDraft.value }); if (blockSelection.value) await api(`/blocks/${blockSelection.value.id}`, 'PUT', { yaml: blockDraft.value, expectedVersion: blockSelection.value.latest_version, summary: blockSummary.value.trim() || undefined }); else await api('/blocks', 'POST', { yaml: blockDraft.value, summary: blockSummary.value.trim() || undefined }); showNewBlock.value = false; blockSummary.value = ''; await loadBasics(); const name = (YAML.parse(blockDraft.value) as Block).name; const item = blocks.value.find(b => b.name === name); if (item) await selectBlock(item.id); notice.value = t('saved') }) }
+async function deleteBlock() { if (!admin.value || !blockSelection.value || !confirm(t('deleteConfirm'))) return; await run(async () => { await api(`/blocks/${blockSelection.value!.id}`, 'DELETE'); blockSelection.value = null; blockDraft.value = ''; await loadBasics() }) }
+async function viewBlockVersion(version: number) { if (!blockSelection.value) return; await run(async () => { blockDraft.value = await api(`/blocks/${blockSelection.value!.id}/versions/${version}`, 'GET', undefined, true) }) }
+async function compareBlockVersions() { if (!blockSelection.value || blockCompareFrom.value == null || blockCompareTo.value == null) return; await run(async () => { blockDiffText.value = await api(`/blocks/${blockSelection.value!.id}/diff?from=${blockCompareFrom.value}&to=${blockCompareTo.value}`, 'GET', undefined, true) }) }
+async function restoreBlockVersion(version: number) { if (!blockSelection.value || !editable.value) return; await run(async () => { const id = blockSelection.value!.id; await api(`/blocks/${id}/restore`, 'POST', { version, expectedVersion: blockSelection.value!.latest_version }); await loadBasics(); await selectBlock(id) }) }
+
+async function openUsers() { if (!admin.value) return; await run(async () => { users.value = await api('/users'); page.value = 'users' }) }
+async function createUser() { await run(async () => { await api('/users', 'POST', { email: createEmail.value, password: createPassword.value, role: createRole.value }); createEmail.value = ''; createPassword.value = ''; users.value = await api('/users') }) }
+async function setRole(id: string, role: string) { await run(async () => { await api(`/users/${id}`, 'PATCH', { role }); users.value = await api('/users') }) }
+async function deleteUser(id: string) { if (!confirm(t('deleteConfirm'))) return; await run(async () => { await api(`/users/${id}`, 'DELETE'); users.value = await api('/users') }) }
+async function openSettings() { await run(async () => { if (admin.value) { const data = await api('/github'); credentialsReady.value = data.credentialsReady; github.value = { owner: data.config?.owner || '', repo: data.config?.repo || '', branch: data.config?.branch || 'main' }; syncStatus.value = await api('/github/status') } page.value = 'settings' }) }
+async function saveGithub() { await run(async () => { await api('/github', 'PUT', github.value); syncStatus.value = await api('/github/status'); notice.value = t('saved') }) }
+async function retrySync() { await run(async () => { await api('/github/retry', 'POST'); syncStatus.value = await api('/github/status') }) }
+
+onMounted(async () => { try { user.value = await api('/me'); await loadBasics() } catch { user.value = null } })
+</script>
+
+<template>
+  <div class="app-shell" :class="user?.theme || 'dark'">
+    <div v-if="!user" class="login-screen">
+      <div class="login-card"><div class="brand-mark">◇</div><div class="eyebrow">SYSTEM ARCHITECTURE</div><h1>{{ t('welcome') }}</h1><p>{{ t('welcomeSub') }}</p>
+        <form @submit.prevent="signIn"><label>{{ t('email') }}<input v-model="loginEmail" type="email" required></label><label>{{ t('password') }}<input v-model="loginPassword" type="password" required></label><button class="primary wide" :disabled="busy">{{ t('signIn') }}</button></form>
+        <div v-if="errorMessage" class="message error">{{ errorMessage }}</div>
+      </div>
+    </div>
+    <template v-else>
+      <aside class="sidebar transition-[width] duration-200" :class="sidebarCollapsed ? 'collapsed' : 'expanded'">
+        <div class="brand"><span class="brand-icon">◇</span><span class="brand-name"><strong>Hardware</strong><small>System Designer</small></span><button class="sidebar-toggle" :title="sidebarCollapsed ? t('showSidebar') : t('hideSidebar')" :aria-label="sidebarCollapsed ? t('showSidebar') : t('hideSidebar')" @click="sidebarCollapsed=!sidebarCollapsed">{{ sidebarCollapsed ? '»' : '«' }}</button></div>
+        <nav><button :class="{ active: page === 'projects' || page === 'editor' }" @click="page='projects'; loadBasics()"><span>▦</span>{{ t('projects') }}</button><button :class="{ active: page === 'library' }" @click="openLibrary"><span>▧</span>{{ t('library') }}</button><button v-if="admin" :class="{ active: page === 'users' }" @click="openUsers"><span>♧</span>{{ t('users') }}</button><button :class="{ active: page === 'settings' }" @click="openSettings"><span>⚙</span>{{ t('settings') }}</button></nav>
+        <div class="sidebar-foot"><span class="avatar">{{ user.email[0].toUpperCase() }}</span><div><strong>{{ user.email }}</strong><small>{{ user.role }}</small></div><button class="icon-button" :title="t('signOut')" @click="signOut">↪</button></div>
+      </aside>
+      <main class="main-area">
+        <div v-if="errorMessage" class="floating-message error">{{ errorMessage }} <button @click="errorMessage=''">×</button></div><div v-if="notice" class="floating-message success">{{ notice }} <button @click="notice=''">×</button></div>
+        <template v-if="page === 'projects'"><header class="page-header"><div><div class="eyebrow">{{ t('workspace') }}</div><h1>{{ t('projects') }}</h1><p>{{ t('welcomeSub') }}</p></div><div class="header-actions"><button v-if="editable" class="secondary" @click="importInput?.click()">↑ {{ t('import') }}</button><input ref="importInput" type="file" accept=".yaml,.yml,text/yaml" hidden @change="importProject(($event.target as HTMLInputElement).files?.[0])"><button v-if="editable" class="primary" @click="showNewProject=true">＋ {{ t('newProject') }}</button></div></header>
+          <div v-if="showNewProject" class="inline-form"><input v-model="newProjectName" :placeholder="t('name')" @keyup.enter="createProject"><button class="primary" @click="createProject">{{ t('create') }}</button><button class="secondary" @click="showNewProject=false">{{ t('cancel') }}</button></div>
+          <div v-if="!projects.length" class="empty-state"><div>▦</div><h2>{{ t('noProjects') }}</h2><p>{{ t('welcomeSub') }}</p></div>
+          <div class="project-grid"><article v-for="p in projects" :key="p.id" class="project-card" @click="openProject(p.id)"><div class="project-icon">◇</div><h2>{{ p.name }}</h2><p>{{ t('revision') }} {{ p.revision }}</p><div class="card-bottom"><span>{{ t('diagram') }}</span><button v-if="admin" class="text-danger" @click.stop="deleteProject(p.id)">{{ t('delete') }}</button><span v-else>↗</span></div></article></div>
+        </template>
+        <template v-else-if="page === 'editor' && project"><header class="editor-header"><div class="breadcrumb"><button @click="page='projects'; loadBasics()">{{ t('projects') }}</button><span>/</span><strong>{{ diagram.name }}</strong><span class="revision-pill">v{{ project.revision }}</span></div><div class="header-actions"><button class="secondary" :aria-label="paletteCollapsed ? t('showBlocks') : t('hideBlocks')" @click="paletteCollapsed=!paletteCollapsed">☰ {{ t('blocks') }}</button><button class="secondary" @click="exportYaml">↓ YAML</button><button class="secondary" @click="exportImage('svg')">↓ SVG</button><button class="secondary" @click="exportImage('png')">↓ PNG</button><button v-if="editable" class="primary" :disabled="busy || yamlDirty" @click="saveProject">{{ t('save') }}</button></div></header>
+          <div class="editor-layout" :class="{'palette-hidden':paletteCollapsed}"><aside class="palette"><div class="section-heading"><h3>{{ t('blocks') }}</h3><span>{{ blocks.length }}</span></div><p class="hint">{{ t('dragHint') }}</p><div v-for="b in blocks" :key="b.id" class="palette-item" :draggable="editable" @dragstart="dragStart($event,b)"><span class="palette-icon"><img v-if="imageFromYaml(b.yaml)" :src="imageFromYaml(b.yaml)" alt="" class="h-7 w-7 rounded-md object-cover"><template v-else>◇</template></span><div><strong>{{ b.name }}</strong><small>v{{ b.latest_version }}</small></div><button v-if="editable" class="add-small" @click="makeNode(b)">＋</button></div></aside>
+            <div class="canvas" @dragover.prevent @drop="dropBlock"><VueFlow v-model:nodes="flowNodes" v-model:edges="flowEdges" :nodes-draggable="editable" :nodes-connectable="editable" :elements-selectable="true" :delete-key-code="null" fit-view-on-init @connect="connect" @node-click="selectedNode=$event.node.id; selectedEdge=null; panel='properties'" @edge-click="selectedEdge=$event.edge.id; selectedNode=null; panel='properties'" @pane-click="selectedNode=null; selectedEdge=null"><Background pattern-color="#8b95a8" :gap="20" :size="1" /><Controls /><template #node-hardware="{ data }"><div class="hardware-node"><div class="node-header"><span class="node-symbol"><img v-if="safeImage(data.block.image)" :src="safeImage(data.block.image)" alt="" class="h-7 w-7 rounded-md object-cover"><template v-else>◇</template></span><strong>{{ data.block.name }}</strong></div><div class="node-model">{{ data.block.model || data.block.function }}</div><div v-for="port in data.block.ports" :key="port.id" class="node-port"><Handle v-if="port.direction !== 'out'" :id="port.id" type="target" :position="Position.Left" /><span>{{ port.label }}</span><em>{{ port.protocol }}</em><Handle v-if="port.direction !== 'in'" :id="port.id" type="source" :position="Position.Right" /></div></div></template></VueFlow><div v-if="!diagram.nodes.length" class="canvas-hint">◇<p>{{ t('insertHint') }}</p></div></div>
+            <aside class="inspector"><div class="tabs"><button :class="{active: panel==='properties'}" @click="panel='properties'">{{ t('properties') }}</button><button :class="{active: panel==='yaml'}" @click="panel='yaml'">YAML</button><button :class="{active: panel==='history'}" @click="panel='history'; loadRevisions()">{{ t('history') }}</button></div>
+              <div v-if="panel==='properties'" class="inspector-content"><template v-if="selected"><div class="eyebrow">{{ t('select') }}</div><h2>{{ selected.block.name }}</h2><label>{{ t('name') }}<input :value="selected.block.name" :disabled="!editable" @input="updateNodeField('name',($event.target as HTMLInputElement).value)"></label><label>{{ t('function') }}<input :value="selected.block.function" :disabled="!editable" @input="updateNodeField('function',($event.target as HTMLInputElement).value)"></label><label>{{ t('model') }}<input :value="selected.block.model" :disabled="!editable" @input="updateNodeField('model',($event.target as HTMLInputElement).value)"></label><div class="image-field mt-5 rounded-xl border border-[var(--border)] p-3"><div class="mb-2 text-xs font-bold">{{ t('image') }}</div><img v-if="safeImage(selected.block.image)" :src="safeImage(selected.block.image)" :alt="selected.block.name" class="mb-3 h-20 w-20 rounded-lg object-cover"><input :value="selected.block.image?.startsWith('https://') ? selected.block.image : ''" type="url" placeholder="https://..." :disabled="!editable" class="w-full" @change="updateNodeField('image',($event.target as HTMLInputElement).value)"><label v-if="editable" class="mt-3">{{ t('uploadImage') }}<input type="file" accept="image/png,image/jpeg,image/webp" class="mt-2 block w-full text-xs" @change="uploadNodeImage(($event.target as HTMLInputElement).files?.[0])"></label></div><div class="detail-line"><span>{{ t('version') }}</span><strong>{{ selected.libraryVersion || '—' }}</strong></div><button v-if="editable && selected.libraryId && blocks.find(b=>b.id===selected?.libraryId)?.latest_version !== selected.libraryVersion" class="secondary wide" @click="updateNodeToLatest">{{ t('updated') }}</button><div class="section-heading"><h3>{{ t('ports') }}</h3></div><div v-for="port in selected.block.ports" :key="port.id" class="port-detail"><span>{{ port.label }}</span><code>{{ port.protocol }} · {{ port.direction }}</code></div><button v-if="editable" class="danger wide" @click="removeNode">{{ t('removeNode') }}</button></template><template v-else-if="selectedEdge"><h2>{{ t('connections') }}</h2><button v-if="editable" class="danger wide" @click="removeEdge">{{ t('removeEdge') }}</button></template><div v-else class="inspector-empty">◇<p>{{ t('select') }}</p></div></div>
+              <div v-else-if="panel==='yaml'" class="inspector-content yaml-content"><p class="hint">{{ t('blockYaml') }}</p><textarea v-model="yamlDraft" spellcheck="false" :readonly="!editable" @input="onYamlInput"></textarea><div v-if="yamlError" class="message error">{{ yamlError }}</div><button v-if="editable" class="secondary wide" :disabled="!yamlDirty" @click="applyYaml">{{ t('apply') }}</button></div>
+              <div v-else class="inspector-content"><h2>{{ t('history') }}</h2><p v-if="!revisions.length" class="hint">{{ t('emptyHistory') }}</p><div v-for="r in revisions" :key="r.revision" class="history-item"><div><strong>v{{ r.revision }}</strong><small>{{ new Date(r.created_at).toLocaleString(lang) }}</small></div><p>{{ r.summary }}</p><small>{{ r.author || 'system' }}</small><button v-if="editable && r.revision !== project.revision" class="link-button" @click="restoreRevision(r.revision!)">{{ t('restore') }}</button></div><div class="compare-box"><h3>{{ t('compare') }}</h3><select v-model.number="compareFrom"><option :value="null">—</option><option v-for="r in revisions" :key="r.revision" :value="r.revision">v{{ r.revision }}</option></select><select v-model.number="compareTo"><option :value="null">—</option><option v-for="r in revisions" :key="r.revision" :value="r.revision">v{{ r.revision }}</option></select><button class="secondary wide" @click="compareRevisions">{{ t('compare') }}</button><pre v-if="diffText" class="diff">{{ diffText }}</pre></div></div>
+            </aside></div><div v-if="editable" class="save-strip"><span>{{ t('summary') }}</span><input v-model="changeSummary" :placeholder="t('summary')"><span v-if="yamlDirty" class="dirty-indicator">{{ t('invalid') }}</span></div>
+        </template>
+        <template v-else-if="page==='library'"><header class="page-header"><div><div class="eyebrow">{{ t('reusable') }}</div><h1>{{ t('library') }}</h1><p>{{ t('blocks') }} · {{ blocks.length }}</p></div><button v-if="editable" class="primary" @click="newBlock">＋ {{ t('newBlock') }}</button></header><div class="library-layout"><div class="library-list"><button v-for="b in blocks" :key="b.id" :class="{chosen:blockSelection?.id===b.id}" @click="selectBlock(b.id)"><span class="palette-icon"><img v-if="imageFromYaml(b.yaml)" :src="imageFromYaml(b.yaml)" alt="" class="h-7 w-7 rounded-md object-cover"><template v-else>◇</template></span><span><strong>{{ b.name }}</strong><small>v{{ b.latest_version }}</small></span></button></div><div class="library-detail" v-if="blockSelection || showNewBlock"><div class="detail-title"><h2>{{ blockSelection?.name || t('newBlock') }}</h2><span v-if="blockSelection" class="revision-pill">v{{ blockSelection.latest_version }}</span></div><div class="image-field my-5 rounded-xl border border-[var(--border)] p-4"><div class="mb-2 text-sm font-bold">{{ t('image') }}</div><img v-if="imageFromYaml(blockDraft)" :src="imageFromYaml(blockDraft)" :alt="blockSelection?.name || t('newBlock')" class="mb-3 h-24 w-24 rounded-lg object-cover"><label>{{ t('imageUrl') }}<input :value="imageFromYaml(blockDraft).startsWith('https://') ? imageFromYaml(blockDraft) : ''" type="url" placeholder="https://..." :disabled="!editable" @change="setBlockImage(($event.target as HTMLInputElement).value)"></label><label v-if="editable">{{ t('uploadImage') }}<input type="file" accept="image/png,image/jpeg,image/webp" class="mt-2 block w-full text-xs" @change="uploadBlockImage(($event.target as HTMLInputElement).files?.[0])"></label><p class="hint">{{ t('imageLimit') }}</p></div><p class="hint">{{ t('blockYaml') }}</p><textarea v-model="blockDraft" class="block-editor" spellcheck="false" :readonly="!editable"></textarea><div class="inline-form" v-if="editable"><input v-model="blockSummary" :placeholder="t('summary')"><button class="primary" @click="saveBlock">{{ t('save') }}</button><button v-if="admin && blockSelection" class="danger" @click="deleteBlock">{{ t('delete') }}</button></div><div v-if="blockSelection"><h3>{{ t('blockVersions') }}</h3><div v-for="v in blockVersions" :key="v.version" class="version-row"><span>v{{ v.version }} · {{ v.summary }}</span><small>{{ v.author || 'system' }}</small><button class="link-button" @click="viewBlockVersion(v.version!)">{{ t('view') }}</button><button v-if="editable && v.version !== blockSelection.latest_version" class="link-button" @click="restoreBlockVersion(v.version!)">{{ t('restore') }}</button></div><div class="compare-box"><h3>{{ t('compare') }}</h3><select v-model.number="blockCompareFrom"><option :value="null">—</option><option v-for="v in blockVersions" :key="v.version" :value="v.version">v{{ v.version }}</option></select><select v-model.number="blockCompareTo"><option :value="null">—</option><option v-for="v in blockVersions" :key="v.version" :value="v.version">v{{ v.version }}</option></select><button class="secondary" @click="compareBlockVersions">{{ t('compare') }}</button><pre v-if="blockDiffText" class="diff">{{ blockDiffText }}</pre></div></div></div><div v-else class="empty-state">◇<p>{{ t('select') }}</p></div></div></template>
+        <template v-else-if="page==='users'"><header class="page-header"><div><div class="eyebrow">{{ t('teamAccess') }}</div><h1>{{ t('users') }}</h1></div></header><div class="content-card"><h2>{{ t('createUser') }}</h2><div class="inline-form"><input v-model="createEmail" type="email" :placeholder="t('email')"><input v-model="createPassword" type="password" :placeholder="t('password') + ' (12+)' "><select v-model="createRole"><option>view</option><option>dev</option><option>Admin</option></select><button class="primary" @click="createUser">{{ t('create') }}</button></div><div v-for="member in users" :key="member.id" class="user-row"><span class="avatar">{{ member.email[0].toUpperCase() }}</span><strong>{{ member.email }}</strong><span v-if="!member.active" class="muted">{{ t('inactive') }}</span><select :value="member.role" :disabled="member.id===user.id || !member.active" @change="setRole(member.id,($event.target as HTMLSelectElement).value)"><option>view</option><option>dev</option><option>Admin</option></select><button class="text-danger" :disabled="member.id===user.id || !member.active" @click="deleteUser(member.id)">{{ t('deleteUser') }}</button></div></div></template>
+        <template v-else-if="page==='settings'"><header class="page-header"><div><div class="eyebrow">{{ t('preferences') }}</div><h1>{{ t('settings') }}</h1></div></header><div class="settings-grid"><section class="content-card"><h2>{{ t('theme') }}</h2><div class="segmented"><button :class="{active:user.theme==='dark'}" @click="updatePreference('theme','dark')">☾ {{ t('dark') }}</button><button :class="{active:user.theme==='light'}" @click="updatePreference('theme','light')">☼ {{ t('light') }}</button></div><h2>{{ t('language') }}</h2><div class="segmented"><button :class="{active:user.language==='es'}" @click="updatePreference('language','es')">Español</button><button :class="{active:user.language==='en'}" @click="updatePreference('language','en')">English</button></div></section><section class="content-card"><h2>{{ t('changePassword') }}</h2><label>{{ t('currentPassword') }}<input v-model="currentPassword" type="password"></label><label>{{ t('newPassword') }}<input v-model="newPassword" type="password" minlength="12"></label><button class="secondary" @click="changeOwnPassword">{{ t('save') }}</button></section><section v-if="admin" class="content-card github-card"><h2>GitHub</h2><p class="hint">{{ t('githubHint') }}</p><span :class="credentialsReady?'status-ok':'status-warn'">● {{ credentialsReady ? t('ready') : t('missing') }}</span><div class="github-fields"><label>{{ t('owner') }}<input v-model="github.owner"></label><label>{{ t('repo') }}<input v-model="github.repo"></label><label>{{ t('branch') }}<input v-model="github.branch"></label></div><button class="primary" @click="saveGithub">{{ t('save') }}</button><div class="section-heading"><h3>{{ t('sync') }}</h3><button class="secondary" @click="retrySync">{{ t('retry') }}</button></div><div class="sync-counts"><span v-for="c in syncStatus.counts" :key="c.status">{{ c.status }}: {{ c.count }}</span></div><div v-for="job in syncStatus.recent.slice(0,8)" :key="job.id" class="version-row"><span>{{ job.kind }} v{{ job.revision }}</span><small :title="job.error">{{ job.status }}{{ job.error ? ' · ' + job.error : '' }}</small></div></section></div></template>
+      </main>
+    </template>
+  </div>
+</template>
