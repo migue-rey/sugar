@@ -23,3 +23,24 @@
 .image-field input[type=file]{background:transparent;padding:4px 0;border:0;color:var(--muted);font-size:11px}
 .image-field input[type=file]::file-selector-button{background:var(--accent-deep);border:1px solid var(--accent);border-radius:6px;color:var(--accent);padding:6px 9px;margin-right:9px;cursor:pointer}
 @media(max-width:1199px){.editor-layout.palette-hidden{grid-template-columns:minmax(0,1fr)}.editor-layout.palette-hidden .inspector{grid-column:1}}
+
+/* YAML workspace and notices */
+@media(min-width:1200px){.editor-layout{grid-template-columns:235px minmax(0,1fr) minmax(300px,var(--yaml-panel-width))}.editor-layout.palette-hidden{grid-template-columns:minmax(0,1fr) minmax(300px,var(--yaml-panel-width))}}
+.yaml-width-control{@apply flex flex-wrap items-center justify-between gap-2; margin:0 0 12px;color:var(--text)}
+.yaml-width-control span{color:var(--muted);font-variant-numeric:tabular-nums}
+.yaml-width-control input{@apply w-full cursor-ew-resize; accent-color:var(--accent);padding:0;border:0;background:transparent}
+@media(max-width:1199px){.yaml-width-control{display:none}}
+.yaml-editor-heading{@apply mb-2 flex items-center justify-between gap-3}
+.yaml-editor-heading p{margin:0}
+.yaml-editor-heading button{@apply shrink-0}
+.library-layout.library-wide{grid-template-columns:minmax(0,1fr)}
+.library-layout.library-wide .library-list{display:none}
+.library-layout.library-wide .library-detail{width:100%;max-width:none}
+.floating-message{position:fixed;top:20px;right:20px;left:auto;z-index:1000;width:min(520px,calc(100vw - 40px));max-width:none;display:flex;align-items:flex-start;gap:12px;padding:15px 17px;border-radius:12px;box-shadow:0 16px 42px #0007;font-size:14px;line-height:1.45}
+.floating-message.error{background:#682b33;color:#fff2f2;border:2px solid #ff8588}
+.app-shell.light .floating-message.error{background:#fff1f2;color:#74262c;border-color:#c73843}
+.floating-message strong{display:block;margin-bottom:2px;font-size:15px}
+.floating-message p{margin:0;overflow-wrap:anywhere}
+.floating-message .notice-icon{@apply flex shrink-0 items-center justify-center rounded-full font-bold; width:23px;height:23px;background:var(--danger);color:#261012}
+.floating-message button{@apply ml-auto shrink-0 rounded-md px-2 py-0.5 text-xl;line-height:1}
+.inline-error{margin:12px 0;font-size:13px;line-height:1.45;overflow-wrap:anywhere}

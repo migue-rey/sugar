@@ -16,8 +16,8 @@ The same Compose file starts the web frontend, API and PostgreSQL. Data is kept 
 
 ## Working with diagrams
 
-- **Projects:** create or import a YAML diagram. Add blocks by clicking `+` or dragging from the library; connect their ports, edit selected block fields, and save a revision with a summary. The right panel shows properties, YAML and history. The navigation sidebar and the block palette can each be hidden with their buttons to give the canvas more space.
-- **Library:** edit a block definition in YAML. Every save creates an immutable version. Existing projects contain the selected version's snapshot, so they do not change until someone updates an instance deliberately. A block can show an identifying image from an HTTPS URL or a PNG/JPEG/WebP upload up to 1 MB. Uploaded images are embedded in YAML so exports remain portable.
+- **Projects:** create or import a YAML diagram. Add blocks by clicking `+` or dragging from the library; connect their ports, edit selected block fields, and save a revision with a summary. The right panel shows properties, YAML and history. On wide screens, use the YAML width slider to resize the right panel. The navigation sidebar and the block palette can each be hidden with their buttons to give the canvas more space.
+- **Library:** edit a block definition in YAML. Use **Expand editor** to hide the block list and give the YAML the available width. Validation errors stay visible at the top of the screen and beside the editor. Every save creates an immutable version. Existing projects contain the selected version's snapshot, so they do not change until someone updates an instance deliberately. A block can show an identifying image from an HTTPS URL or a PNG/JPEG/WebP upload up to 1 MB. Uploaded images are embedded in YAML so exports remain portable.
 - **History:** compare two revisions with a text diff, or restore one as a new revision. Concurrent edits return a conflict instead of overwriting changes.
 - **Export:** project YAML includes its block snapshots and is portable. SVG and PNG exports capture the current canvas viewport.
 
