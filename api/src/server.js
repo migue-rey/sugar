@@ -19,8 +19,40 @@ const canEdit = user => user.role === 'Admin' || user.role === 'dev'
 const requireEdit = req => { if (!canEdit(req.user)) error(403, 'Se requiere rol dev o Admin') }
 const requireAdmin = req => { if (req.user.role !== 'Admin') error(403, 'Se requiere rol Admin') }
 const requiredText = (v, label) => { if (typeof v !== 'string' || !v.trim()) error(400, `${label} obligatorio`); return v.trim() }
+const projectFields = `p.id,p.name,p.revision,p.yaml,p.visibility,p.created_by,p.sync_repository,p.sync_branch,p.settings_version,p.created_at,u.email AS creator`
+const projectJoin = `FROM projects p LEFT JOIN users u ON u.id=p.created_by`
+async function requireProject(req, edit = false, ownerOnly = false) {
+  const { rows } = await q(`SELECT ${projectFields} ${projectJoin} WHERE p.id=$1 AND p.deleted_at IS NULL`, [req.params.id])
+  const project = rows[0]
+  if (!project) error(404, 'Proyecto no encontrado')
+  const owner = project.created_by === req.user.id || req.user.role === 'Admin'
+  if (ownerOnly && !owner) error(403, 'Solo el creador o un administrador puede configurar este proyecto')
+  if (project.visibility === 'private' && !owner) error(403, 'Proyecto privado')
+  if (edit) requireEdit(req)
+  return project
+}
+function repositorySettings(body) {
+  const repository = String(body.sync_repository || '').trim()
+  const branch = String(body.sync_branch || 'main').trim()
+  if (repository && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) error(400, 'Usa owner/repo para el repositorio')
+  if (!/^[A-Za-z0-9._/-]+$/.test(branch) || branch.includes('..') || branch.startsWith('/') || branch.endsWith('/')) error(400, 'Rama de GitHub inválida')
+  return { repository: repository || null, branch }
+}
 
 app.get('/api/health', (_, res) => res.json({ ok: true }))
+app.get('/api/public/projects/:id', asyncRoute(async (req, res) => {
+  const { rows } = await q(`SELECT ${projectFields} ${projectJoin} WHERE p.id=$1 AND p.visibility='public' AND p.deleted_at IS NULL`, [req.params.id])
+  if (!rows[0]) error(404, 'Proyecto público no encontrado')
+  const { id, name, yaml, revision, creator, visibility } = rows[0]
+  res.json({ id, name, yaml, revision, creator, visibility })
+}))
+app.get('/api/shared/:token', asyncRoute(async (req, res) => {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(req.params.token)) error(404, 'Enlace no encontrado')
+  const { rows } = await q(`SELECT ${projectFields} ${projectJoin} WHERE p.share_token=$1 AND p.deleted_at IS NULL`, [req.params.token])
+  if (!rows[0]) error(404, 'Enlace no encontrado')
+  const { id, name, yaml, revision, creator, visibility } = rows[0]
+  res.json({ id, name, yaml, revision, creator, visibility })
+}))
 app.post('/api/login', asyncRoute(async (req, res) => {
   const { rows } = await q('SELECT * FROM users WHERE email=$1 AND active=true', [String(req.body.email || '').toLowerCase()])
   const user = rows[0]
@@ -148,32 +180,74 @@ app.put('/api/blocks/:id', asyncRoute(async (req, res) => {
 }))
 app.delete('/api/blocks/:id', asyncRoute(async (req, res) => { requireAdmin(req); await q('UPDATE blocks SET deleted_at=now() WHERE id=$1', [req.params.id]); res.json({ ok: true }) }))
 
-app.get('/api/projects', asyncRoute(async (_req, res) => {
-  res.json((await q('SELECT id,name,revision,created_at FROM projects WHERE deleted_at IS NULL ORDER BY name')).rows)
+app.get('/api/projects', asyncRoute(async (req, res) => {
+  res.json((await q(`SELECT p.id,p.name,p.revision,p.created_at,p.visibility,p.created_by,p.sync_repository,p.sync_branch,p.settings_version,u.email AS creator ${projectJoin} WHERE p.deleted_at IS NULL AND (p.visibility='public' OR p.created_by=$1 OR $2='Admin') ORDER BY p.name`, [req.user.id, req.user.role])).rows)
 }))
 app.post('/api/projects', asyncRoute(async (req, res) => {
   requireEdit(req)
   const yaml = requiredText(req.body.yaml || stringify({ name: req.body.name || 'Nuevo proyecto', nodes: [], edges: [] }), 'YAML')
   const project = validateProject(yaml), id = crypto.randomUUID()
   await transaction(async tx => {
-    await tx('INSERT INTO projects(id,name,revision,yaml) VALUES($1,$2,1,$3)', [id, project.name, yaml])
+    await tx('INSERT INTO projects(id,name,revision,yaml,created_by) VALUES($1,$2,1,$3,$4)', [id, project.name, yaml, req.user.id])
     await tx('INSERT INTO project_revisions(project_id,revision,yaml,author_id,summary) VALUES($1,1,$2,$3,$4)', [id, yaml, req.user.id, req.body.summary || 'Proyecto creado'])
-    await enqueue('project', id, 1, yaml, tx)
   })
   res.status(201).json({ id, revision: 1 })
 }))
+app.patch('/api/projects/:id/settings', asyncRoute(async (req, res) => {
+  const current = await requireProject(req, false, true)
+  const visibility = req.body.visibility
+  if (!['public', 'private'].includes(visibility)) error(400, 'Visibilidad inválida')
+  const { repository, branch } = repositorySettings(req.body)
+  const expected = Number(req.body.expectedSettingsVersion)
+  if (!Number.isInteger(expected) || expected < 1) error(400, 'Versión de configuración inválida')
+  const before = { visibility: current.visibility, sync_repository: current.sync_repository, sync_branch: current.sync_branch }
+  const after = { visibility, sync_repository: repository, sync_branch: branch }
+  if (JSON.stringify(before) !== JSON.stringify(after)) {
+    await transaction(async tx => {
+      const { rows } = await tx('UPDATE projects SET share_token=CASE WHEN visibility IS DISTINCT FROM $3 THEN NULL ELSE share_token END,visibility=$3,sync_repository=$4,sync_branch=$5,settings_version=settings_version+1 WHERE id=$1 AND settings_version=$2 AND deleted_at IS NULL RETURNING revision,yaml', [req.params.id, expected, visibility, repository, branch])
+      if (!rows[0]) error(409, 'La configuración cambió; recarga antes de guardar')
+      await tx('INSERT INTO project_settings_history(project_id,author_id,before,after) VALUES($1,$2,$3::jsonb,$4::jsonb)', [req.params.id, req.user.id, JSON.stringify(before), JSON.stringify(after)])
+      if (repository !== current.sync_repository || branch !== current.sync_branch) await tx("UPDATE sync_jobs SET status='skipped',error='Destino de sincronización cambiado' WHERE kind='project' AND record_id=$1 AND status='pending'", [req.params.id])
+      if (repository && (repository !== current.sync_repository || branch !== current.sync_branch)) await enqueue('project', req.params.id, rows[0].revision, rows[0].yaml, tx, { repository, branch })
+    })
+  }
+  res.json(await requireProject(req))
+}))
+app.get('/api/projects/:id/settings/history', asyncRoute(async (req, res) => {
+  await requireProject(req)
+  res.json((await q('SELECT h.before,h.after,h.created_at,u.email AS author FROM project_settings_history h LEFT JOIN users u ON u.id=h.author_id WHERE h.project_id=$1 ORDER BY h.id DESC', [req.params.id])).rows)
+}))
+app.post('/api/projects/:id/share', asyncRoute(async (req, res) => {
+  const project = await requireProject(req, false, true)
+  if (project.visibility === 'public') return res.json({ path: `/?public=${project.id}` })
+  const token = crypto.randomBytes(32).toString('base64url')
+  const { rows } = await q('UPDATE projects SET share_token=COALESCE(share_token,$2) WHERE id=$1 AND deleted_at IS NULL RETURNING share_token', [project.id, token])
+  res.json({ path: `/?share=${rows[0].share_token}` })
+}))
+app.delete('/api/projects/:id/share', asyncRoute(async (req, res) => {
+  await requireProject(req, false, true)
+  await q('UPDATE projects SET share_token=NULL WHERE id=$1', [req.params.id])
+  res.json({ ok: true })
+}))
+app.get('/api/projects/:id/sync', asyncRoute(async (req, res) => {
+  await requireProject(req)
+  res.json((await q("SELECT revision,status,attempts,error,commit_sha,created_at,target_repository,target_branch FROM sync_jobs WHERE kind='project' AND record_id=$1 ORDER BY id DESC LIMIT 10", [req.params.id])).rows)
+}))
+app.post('/api/projects/:id/sync/retry', asyncRoute(async (req, res) => {
+  await requireProject(req, false, true)
+  await q("UPDATE sync_jobs SET next_attempt_at=now() WHERE kind='project' AND record_id=$1 AND status='pending'", [req.params.id])
+  syncOne().catch(console.error)
+  res.json({ ok: true })
+}))
 app.get('/api/projects/:id', asyncRoute(async (req, res) => {
-  const { rows } = await q('SELECT id,name,revision,yaml FROM projects WHERE id=$1 AND deleted_at IS NULL', [req.params.id])
-  if (!rows[0]) error(404, 'Proyecto no encontrado')
-  res.json(rows[0])
+  res.json(await requireProject(req))
 }))
 app.get('/api/projects/:id/export', asyncRoute(async (req, res) => {
-  const { rows } = await q('SELECT name,yaml FROM projects WHERE id=$1 AND deleted_at IS NULL', [req.params.id])
-  if (!rows[0]) error(404, 'Proyecto no encontrado')
-  res.set('Content-Disposition', `attachment; filename="${req.params.id}.yaml"`).type('text/yaml').send(rows[0].yaml)
+  const project = await requireProject(req)
+  res.set('Content-Disposition', `attachment; filename="${req.params.id}.yaml"`).type('text/yaml').send(project.yaml)
 }))
 app.put('/api/projects/:id', asyncRoute(async (req, res) => {
-  requireEdit(req)
+  const current = await requireProject(req, true)
   const yaml = requiredText(req.body.yaml, 'YAML'), project = validateProject(yaml), expected = Number(req.body.expectedRevision)
   if (!Number.isInteger(expected) || expected < 1) error(400, 'Revisión esperada inválida')
   const revision = await transaction(async tx => {
@@ -181,21 +255,24 @@ app.put('/api/projects/:id', asyncRoute(async (req, res) => {
     if (!rows[0]) error(409, 'El proyecto cambió; recarga antes de guardar')
     const revision = rows[0].revision
     await tx('INSERT INTO project_revisions(project_id,revision,yaml,author_id,summary) VALUES($1,$2,$3,$4,$5)', [req.params.id, revision, yaml, req.user.id, req.body.summary || 'Proyecto actualizado'])
-    await enqueue('project', req.params.id, revision, yaml, tx)
+    if (current.sync_repository) await enqueue('project', req.params.id, revision, yaml, tx, { repository: current.sync_repository, branch: current.sync_branch })
     return revision
   })
   res.json({ revision })
 }))
-app.delete('/api/projects/:id', asyncRoute(async (req, res) => { requireAdmin(req); await q('UPDATE projects SET deleted_at=now() WHERE id=$1', [req.params.id]); res.json({ ok: true }) }))
+app.delete('/api/projects/:id', asyncRoute(async (req, res) => { requireAdmin(req); await requireProject(req); await q('UPDATE projects SET deleted_at=now() WHERE id=$1', [req.params.id]); res.json({ ok: true }) }))
 app.get('/api/projects/:id/revisions', asyncRoute(async (req, res) => {
+  await requireProject(req)
   res.json((await q(`SELECT r.revision,r.summary,r.created_at,u.email AS author FROM project_revisions r LEFT JOIN users u ON u.id=r.author_id WHERE project_id=$1 ORDER BY revision DESC`, [req.params.id])).rows)
 }))
 app.get('/api/projects/:id/revisions/:revision', asyncRoute(async (req, res) => {
+  await requireProject(req)
   const { rows } = await q('SELECT yaml FROM project_revisions WHERE project_id=$1 AND revision=$2', [req.params.id, req.params.revision])
   if (!rows[0]) error(404, 'Revisión no encontrada')
   res.type('text/yaml').send(rows[0].yaml)
 }))
 app.get('/api/projects/:id/diff', asyncRoute(async (req, res) => {
+  await requireProject(req)
   const a = Number(req.query.from), b = Number(req.query.to)
   if (!Number.isInteger(a) || !Number.isInteger(b)) error(400, 'Selecciona dos revisiones')
   const { rows } = await q('SELECT revision,yaml FROM project_revisions WHERE project_id=$1 AND revision=ANY($2::int[])', [req.params.id, [a, b]])
@@ -204,7 +281,7 @@ app.get('/api/projects/:id/diff', asyncRoute(async (req, res) => {
   res.type('text/plain').send(createPatch('project.yaml', one.yaml, two.yaml, `revision ${a}`, `revision ${b}`))
 }))
 app.post('/api/projects/:id/restore', asyncRoute(async (req, res) => {
-  requireEdit(req)
+  const current = await requireProject(req, true)
   const wanted = Number(req.body.revision), expected = Number(req.body.expectedRevision)
   if (!Number.isInteger(wanted) || !Number.isInteger(expected)) error(400, 'Revisión inválida')
   const { rows } = await q('SELECT yaml FROM project_revisions WHERE project_id=$1 AND revision=$2', [req.params.id, wanted])
@@ -215,7 +292,7 @@ app.post('/api/projects/:id/restore', asyncRoute(async (req, res) => {
     if (!saved.rows[0]) error(409, 'El proyecto cambió; recarga antes de restaurar')
     const revision = saved.rows[0].revision
     await tx('INSERT INTO project_revisions(project_id,revision,yaml,author_id,summary) VALUES($1,$2,$3,$4,$5)', [req.params.id, revision, rows[0].yaml, req.user.id, `Restaurada revisión ${wanted}`])
-    await enqueue('project', req.params.id, revision, rows[0].yaml, tx)
+    if (current.sync_repository) await enqueue('project', req.params.id, revision, rows[0].yaml, tx, { repository: current.sync_repository, branch: current.sync_branch })
     return revision
   })
   res.json({ revision })

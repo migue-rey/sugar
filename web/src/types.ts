@@ -6,5 +6,5 @@ export type DiagramNode = { id: string; position: { x: number; y: number }; bloc
 export type DiagramEdge = { id: string; source: string; target: string; sourcePort: string; targetPort: string }
 export type Diagram = { name: string; nodes: DiagramNode[]; edges: DiagramEdge[] }
 export type LibraryItem = { id: string; name: string; latest_version: number; yaml: string }
-export type ProjectItem = { id: string; name: string; revision: number; yaml?: string }
+export type ProjectItem = { id: string; name: string; revision: number; yaml?: string; visibility: 'public' | 'private'; created_by: string | null; creator: string | null; created_at: string; sync_repository: string | null; sync_branch: string; settings_version: number }
 export type Revision = { revision?: number; version?: number; summary: string; created_at: string; author: string | null }

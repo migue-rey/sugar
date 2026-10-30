@@ -44,3 +44,19 @@
 .floating-message .notice-icon{@apply flex shrink-0 items-center justify-center rounded-full font-bold; width:23px;height:23px;background:var(--danger);color:#261012}
 .floating-message button{@apply ml-auto shrink-0 rounded-md px-2 py-0.5 text-xl;line-height:1}
 .inline-error{margin:12px 0;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+
+/* Project settings and read-only sharing */
+.project-card>p+p{margin-top:7px}
+.project-settings-panel select,.project-settings-panel input{width:100%}
+.project-settings-panel .detail-line strong{max-width:65%;text-align:right;overflow-wrap:anywhere}
+.project-settings-panel .hint{margin:8px 0 16px}
+.share-section,.sync-section,.settings-history{margin-top:28px;padding-top:18px;border-top:1px solid var(--border)}
+.share-section h3,.settings-history h3{font:600 14px 'Space Grotesk';margin:0 0 14px}
+.share-section .link-button{margin-top:9px}
+.shared-screen{width:100%;min-height:100vh;background:var(--bg);color:var(--text);display:flex;flex-direction:column}
+.shared-header{padding:22px 30px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:20px}
+.shared-header h1{font:700 25px 'Space Grotesk';margin:5px 0}
+.shared-header p{color:var(--muted);font-size:12px;margin:0}
+.shared-header a{text-decoration:none}
+.shared-canvas{position:relative;flex:1;min-height:600px;background:var(--bg)}
+@media(max-width:650px){.shared-header{padding:18px;align-items:flex-start;flex-direction:column}.shared-header h1{font-size:20px}}
