@@ -1,0 +1,111 @@
+name: Test, publish and deploy Sugar
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sugar-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: designer
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: sugar_ai
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd 'pg_isready -U designer -d sugar_ai'
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            api/package-lock.json
+            web/package-lock.json
+      - run: npm ci
+        working-directory: api
+      - run: npm test
+        working-directory: api
+      - name: PostgreSQL and mocked DeepSeek integration
+        working-directory: api
+        env:
+          DATABASE_URL: postgres://designer:ci-password@127.0.0.1:5432/sugar_ai
+          AI_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+        run: |
+          set -euo pipefail
+          node --input-type=module -e "import pg from 'pg'; const c=new pg.Client({connectionString:process.env.DATABASE_URL}); await c.connect(); await c.query('CREATE DATABASE sugar_icons'); await c.end()"
+          ADMIN_PASSWORD=local-ai-verification-password PORT=3001 node --import ./test-support/deepseek-mock.mjs src/server.js > /tmp/sugar-ai.log 2>&1 &
+          ai_pid=$!
+          DATABASE_URL=postgres://designer:ci-password@127.0.0.1:5432/sugar_icons ADMIN_PASSWORD=local-icons-verification-password PORT=3002 node src/server.js > /tmp/sugar-icons.log 2>&1 &
+          icons_pid=$!
+          trap 'kill "$ai_pid" "$icons_pid" 2>/dev/null || true' EXIT
+          for port in 3001 3002; do
+            curl --fail --silent --retry 30 --retry-connrefused --retry-delay 1 "http://127.0.0.1:$port/api/health" > /dev/null
+          done
+          AI_TEST_URL=http://127.0.0.1:3001 ICON_TEST_URL=http://127.0.0.1:3002 npm test
+      - run: npm ci
+        working-directory: web
+      - run: npm test && npm run build
+        working-directory: web
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        component: [api, web]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ./${{ matrix.component }}
+          push: true
+          tags: ghcr.io/picli3/sugar-${{ matrix.component }}:${{ github.sha }}
+          labels: org.opencontainers.image.source=https://github.com/picli3/sugar
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    environment: production
+    steps:
+      - name: Deploy the tested commit through a restricted SSH key
+        env:
+          DEPLOY_KEY: ${{ secrets.VPS_SSH_KEY }}
+          DEPLOY_HOST: ${{ vars.VPS_HOST }}
+          DEPLOY_USER: ${{ vars.VPS_USER }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/sugar_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          trap 'rm -f ~/.ssh/sugar_deploy' EXIT
+          printf '%s\n' "$REGISTRY_TOKEN" | ssh -T -i ~/.ssh/sugar_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$DEPLOY_USER@$DEPLOY_HOST" "deploy $DEPLOY_SHA"

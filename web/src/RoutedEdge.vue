@@ -2,28 +2,20 @@
 import { computed, onBeforeUnmount } from 'vue'
 import { BaseEdge, useVueFlow, type EdgeProps } from '@vue-flow/core'
 
-type Point = { x: number; y: number }
-type Axis = 'x' | 'y'
-const props = defineProps<EdgeProps<{ route?: Point; editable?: boolean; color?: string }>>()
+import { resolveRoute, routePoints, routeControls, moveRoute, type Point, type EdgeRoute, type ResolvedRoute, type RouteControl } from './edgeRouting'
+const props = defineProps<EdgeProps<{ route?: EdgeRoute; editable?: boolean; color?: string; labelColor?: string }>>()
 const { screenToFlowCoordinate, updateEdgeData } = useVueFlow()
 
-// Keep default and edited connections on the same rounded, orthogonal route.
-const route = computed<Point>(() => props.data?.route || {
-  x: Math.round((props.sourceX + props.targetX) / 2),
-  y: props.targetY,
+// Preserve legacy routes and allow each vertical leg to move independently.
+const source = computed<Point>(() => ({ x: props.sourceX, y: props.sourceY }))
+const target = computed<Point>(() => ({ x: props.targetX, y: props.targetY }))
+const route = computed(() => resolveRoute(source.value, target.value, props.data?.route))
+const points = computed(() => routePoints(source.value, target.value, route.value))
+const controls = computed(() => routeControls(source.value, target.value, route.value))
+const labelPoint = computed(() => {
+  const preferred = controls.value.find(control => control.field === 'y') || controls.value[0]
+  return preferred?.point || { x: (props.sourceX + props.targetX) / 2, y: props.sourceY }
 })
-const points = computed<Point[]>(() => [
-  { x: props.sourceX, y: props.sourceY },
-  { x: route.value.x, y: props.sourceY },
-  { x: route.value.x, y: route.value.y },
-  { x: props.targetX, y: route.value.y },
-  { x: props.targetX, y: props.targetY },
-])
-const verticalHandle = computed<Point>(() => ({ x: route.value.x, y: (props.sourceY + route.value.y) / 2 }))
-const horizontalHandle = computed<Point>(() => ({ x: (route.value.x + props.targetX) / 2, y: route.value.y }))
-const showVerticalHandle = computed(() => Math.abs(route.value.y - props.sourceY) >= 18)
-const showHorizontalHandle = computed(() => Math.abs(props.targetX - route.value.x) >= 18)
-const labelPoint = computed(() => showHorizontalHandle.value ? horizontalHandle.value : verticalHandle.value)
 
 function roundedPath(raw: Point[], radius = 12) {
   const corners = raw.filter((point, index) => !index || point.x !== raw[index - 1].x || point.y !== raw[index - 1].y)
@@ -46,12 +38,12 @@ function roundedPath(raw: Point[], radius = 12) {
 }
 const path = computed(() => roundedPath(points.value))
 
-let drag: { axis: Axis; pointerId: number; start: Point; original: Point } | null = null
+let drag: { control: RouteControl; pointerId: number; start: Point; original?: EdgeRoute; resolved: ResolvedRoute } | null = null
 function move(event: PointerEvent) {
   if (!drag || event.pointerId !== drag.pointerId) return
   const position = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
-  const next = { ...drag.original }
-  next[drag.axis] = Math.round(drag.original[drag.axis] + position[drag.axis] - drag.start[drag.axis])
+  const axis = drag.control.axis
+  const next = moveRoute(drag.original, drag.resolved, drag.control.field, position[axis] - drag.start[axis])
   updateEdgeData(props.id, { route: next })
 }
 function stop() {
@@ -60,12 +52,12 @@ function stop() {
   window.removeEventListener('pointerup', stop)
   window.removeEventListener('pointercancel', stop)
 }
-function start(axis: Axis, event: PointerEvent) {
+function start(control: RouteControl, event: PointerEvent) {
   if (!props.data?.editable) return
   event.preventDefault()
   event.stopPropagation()
   stop()
-  drag = { axis, pointerId: event.pointerId, start: screenToFlowCoordinate({ x: event.clientX, y: event.clientY }), original: { ...route.value } }
+  drag = { control, pointerId: event.pointerId, start: screenToFlowCoordinate({ x: event.clientX, y: event.clientY }), original: props.data?.route ? { ...props.data.route } : undefined, resolved: { ...route.value } }
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', stop)
   window.addEventListener('pointercancel', stop)
@@ -74,13 +66,9 @@ onBeforeUnmount(stop)
 </script>
 
 <template>
-  <BaseEdge :id="id" :path="path" fill="none" :label="label" :label-x="labelPoint.x" :label-y="labelPoint.y - 18" :marker-end="markerEnd" :interaction-width="24" :style="data?.color ? { stroke: data.color } : undefined" />
+  <BaseEdge :id="id" :path="path" fill="none" :label="label" :label-style="{ fill: data?.labelColor || '#28241f' }" :label-x="labelPoint.x" :label-y="labelPoint.y - 18" :marker-end="markerEnd" :interaction-width="24" :style="data?.color ? { stroke: data.color } : undefined" />
   <template v-if="data?.editable && selected">
-    <g v-if="showVerticalHandle" class="edge-route-control" :transform="`translate(${verticalHandle.x} ${verticalHandle.y})`" @pointerdown="start('x', $event)">
-      <circle class="edge-route-handle-hit" r="17" />
-      <circle class="edge-route-handle" r="7" />
-    </g>
-    <g v-if="showHorizontalHandle" class="edge-route-control" :transform="`translate(${horizontalHandle.x} ${horizontalHandle.y})`" @pointerdown="start('y', $event)">
+    <g v-for="control in controls" :key="control.field" class="edge-route-control" :data-route-control="control.field" :transform="`translate(${control.point.x} ${control.point.y})`" @pointerdown="start(control, $event)">
       <circle class="edge-route-handle-hit" r="17" />
       <circle class="edge-route-handle" r="7" />
     </g>

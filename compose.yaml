@@ -17,6 +17,7 @@ services:
     build: ./api
     environment:
       DATABASE_URL: postgres://designer:${DB_PASSWORD:-local-designer-password}@db:5432/hardware_designer
+      AI_ENCRYPTION_KEY: ${AI_ENCRYPTION_KEY:-}
       JWT_SECRET: ${JWT_SECRET:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}

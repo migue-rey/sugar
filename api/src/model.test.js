@@ -80,3 +80,9 @@ test('accepts multiple named links and rejects malformed link lists', () => {
   ]) assert.throws(() => validateBlock(stringify({ ...sensor, properties: { urls: [invalid] } })), /properties.urls/)
   assert.throws(() => validateBlock(stringify({ ...sensor, properties: { urls: 'https://example.com' } })), /properties.urls/)
 })
+
+test('accepts independent target leg coordinates and rejects invalid targetX',()=>{
+  const doc={name:'Separate target leg',nodes:[node('mcu',controller),node('sensor',sensor)],edges:[{id:'e1',source:'mcu',target:'sensor',sourcePort:'i2c',targetPort:'i2c',route:{x:800,y:50,targetX:-80}}]}
+  assert.equal(validateProject(stringify(doc)).edges[0].route.targetX,-80)
+  for(const value of ['80',null,Infinity]) { doc.edges[0].route.targetX=value; assert.throws(()=>validateProject(stringify(doc)),/targetX válida/) }
+})

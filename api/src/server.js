@@ -1,3 +1,4 @@
+import { registerAi } from './ai.js'
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import bcrypt from 'bcryptjs'
@@ -8,7 +9,7 @@ import { q, initDb, transaction, signingSecret } from './db.js'
 import { validateBlock, validateProject, stringify, normalizeColorLiterals } from './model.js'
 import { enqueue, startSync, syncOne } from './github.js'
 import { imageBytes, replaceEmbeddedImages } from './images.js'
-import { archiveCategory, createCategory, listCategories, renameCategory, validateCategory } from './categories.js'
+import { archiveCategory, createCategory, listCategories, renameCategory, validateCategory, projectCategoryIcons } from './categories.js'
 
 const app = express()
 app.use(express.json({ limit: '3mb' }))
@@ -51,20 +52,20 @@ app.get('/api/public/projects/:id', asyncRoute(async (req, res) => {
   const { rows } = await q(`SELECT ${projectFields} ${projectJoin} WHERE p.id=$1 AND p.visibility='public' AND p.deleted_at IS NULL`, [req.params.id])
   if (!rows[0]) error(404, 'Proyecto público no encontrado')
   const { id, name, yaml, revision, creator, visibility } = rows[0]
-  res.json({ id, name, yaml, revision, creator, visibility })
+  res.json({ id, name, yaml, revision, creator, visibility, category_icons: await projectCategoryIcons(yaml) })
 }))
 app.get('/api/shared/:token', asyncRoute(async (req, res) => {
   if (!/^[A-Za-z0-9_-]{43}$/.test(req.params.token)) error(404, 'Enlace no encontrado')
   const { rows } = await q(`SELECT ${projectFields} ${projectJoin} WHERE p.share_token=$1 AND p.deleted_at IS NULL`, [req.params.token])
   if (!rows[0]) error(404, 'Enlace no encontrado')
   const { id, name, yaml, revision, creator, visibility } = rows[0]
-  res.json({ id, name, yaml, revision, creator, visibility })
+  res.json({ id, name, yaml, revision, creator, visibility, category_icons: await projectCategoryIcons(yaml) })
 }))
 app.post('/api/login', asyncRoute(async (req, res) => {
   const { rows } = await q('SELECT * FROM users WHERE email=$1 AND active=true', [String(req.body.email || '').toLowerCase()])
   const user = rows[0]
   if (!user || !(await bcrypt.compare(String(req.body.password || ''), user.password_hash))) error(401, 'Credenciales inválidas')
-  res.cookie('session', jwt.sign({ id: user.id }, secret, { expiresIn: '7d' }), { httpOnly: true, sameSite: 'strict', secure: req.secure, maxAge: 604800000, path: '/' })
+  res.cookie('session', jwt.sign({ id: user.id }, secret, { expiresIn: '7d' }), { httpOnly: true, sameSite: 'strict', secure: process.env.SESSION_SECURE === 'true' || req.secure, maxAge: 604800000, path: '/' })
   res.json({ id: user.id, email: user.email, role: user.role, language: user.language, theme: user.theme })
 }))
 app.post('/api/logout', (_, res) => { res.clearCookie('session', { path: '/' }); res.json({ ok: true }) })
@@ -147,11 +148,11 @@ app.delete('/api/users/:id', asyncRoute(async (req, res) => {
 app.get('/api/categories', asyncRoute(async (_req, res) => { res.json(await listCategories()) }))
 app.post('/api/categories', asyncRoute(async (req, res) => {
   requireAdmin(req)
-  res.status(201).json(await transaction(tx => createCategory(req.body.name, req.body.parentId || null, tx)))
+  res.status(201).json(await transaction(tx => createCategory(req.body.name, req.body.parentId || null, tx, req.body.icon)))
 }))
 app.patch('/api/categories/:id', asyncRoute(async (req, res) => {
   requireAdmin(req)
-  res.json(await transaction(tx => renameCategory(req.params.id, req.body.name, tx)))
+  res.json(await transaction(tx => renameCategory(req.params.id, req.body.name, tx, req.body.icon)))
 }))
 app.delete('/api/categories/:id', asyncRoute(async (req, res) => {
   requireAdmin(req)
@@ -169,7 +170,6 @@ app.post('/api/blocks', asyncRoute(async (req, res) => {
     await validateCategory(block, tx)
     await tx('INSERT INTO blocks(id,name,latest_version,category_slug,subcategory_slug) VALUES($1,$2,1,$3,$4)', [id, block.name, block.category, block.subcategory || null])
     await tx('INSERT INTO block_versions(block_id,version,yaml,author_id,summary) VALUES($1,1,$2,$3,$4)', [id, yaml, req.user.id, summary])
-    await enqueue('block', id, 1, yaml, tx)
   })
   res.status(201).json({ id, version: 1 })
 }))
@@ -210,7 +210,6 @@ app.post('/api/blocks/:id/restore', asyncRoute(async (req, res) => {
     if (!saved.rows[0]) error(409, 'El bloque cambió; recarga antes de restaurar')
     const version = saved.rows[0].latest_version
     await tx('INSERT INTO block_versions(block_id,version,yaml,author_id,summary) VALUES($1,$2,$3,$4,$5)', [req.params.id, version, yaml, req.user.id, `Restaurada versión ${wanted}`])
-    await enqueue('block', req.params.id, version, yaml, tx)
     return version
   })
   res.json({ version })
@@ -225,7 +224,6 @@ app.put('/api/blocks/:id', asyncRoute(async (req, res) => {
     if (!rows[0]) error(409, 'El bloque cambió; recarga antes de guardar')
     const version = rows[0].latest_version
     await tx('INSERT INTO block_versions(block_id,version,yaml,author_id,summary) VALUES($1,$2,$3,$4,$5)', [req.params.id, version, yaml, req.user.id, req.body.summary || 'Bloque actualizado'])
-    await enqueue('block', req.params.id, version, yaml, tx)
     return version
   })
   res.json({ version })
@@ -351,29 +349,7 @@ app.post('/api/projects/:id/restore', asyncRoute(async (req, res) => {
   res.json({ revision })
 }))
 
-app.get('/api/github', asyncRoute(async (req, res) => {
-  requireAdmin(req)
-  const { rows } = await q("SELECT value FROM settings WHERE key='github'")
-  res.json({ config: rows[0]?.value || null, credentialsReady: Boolean(process.env.GITHUB_APP_ID && process.env.GITHUB_INSTALLATION_ID && process.env.GITHUB_PRIVATE_KEY) })
-}))
-app.put('/api/github', asyncRoute(async (req, res) => {
-  requireAdmin(req)
-  const owner = requiredText(req.body.owner, 'Organización o usuario'), repo = requiredText(req.body.repo, 'Repositorio'), branch = requiredText(req.body.branch || 'main', 'Rama')
-  if (![owner, repo, branch].every(x => /^[A-Za-z0-9._/-]+$/.test(x))) error(400, 'Repositorio o rama inválidos')
-  await q("INSERT INTO settings(key,value) VALUES('github',$1::jsonb) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [JSON.stringify({ owner, repo, branch })])
-  res.json({ owner, repo, branch })
-}))
-app.get('/api/github/status', asyncRoute(async (req, res) => {
-  const { rows } = await q("SELECT status,count(*)::int AS count FROM sync_jobs GROUP BY status")
-  const recent = (await q('SELECT id,kind,record_id,revision,status,attempts,error,commit_sha FROM sync_jobs ORDER BY id DESC LIMIT 20')).rows
-  res.json({ counts: rows, recent })
-}))
-app.post('/api/github/retry', asyncRoute(async (req, res) => {
-  requireAdmin(req)
-  await q("UPDATE sync_jobs SET next_attempt_at=now() WHERE status='pending'")
-  syncOne().catch(console.error)
-  res.json({ ok: true })
-}))
+registerAi(app, { q, requireAdmin, requireEdit, requireProject })
 
 app.use((err, _req, res, _next) => {
   if (err.code === '23505') return res.status(409).json({ error: 'Ya existe un registro con ese nombre o identificador' })

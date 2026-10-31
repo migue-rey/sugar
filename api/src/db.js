@@ -1,3 +1,4 @@
+import { initAiDb } from './ai.js'
 import pg from 'pg'
 import bcrypt from 'bcryptjs'
 import crypto from 'node:crypto'
@@ -24,10 +25,13 @@ export async function signingSecret() {
   return (await q("SELECT value FROM settings WHERE key='jwt_secret'")).rows[0].value
 }
 export async function initDb() {
-  await q(`CREATE TABLE IF NOT EXISTS users (id uuid PRIMARY KEY, email text UNIQUE NOT NULL, password_hash text NOT NULL, role text NOT NULL CHECK(role IN ('view','dev','Admin')), language text NOT NULL DEFAULT 'es', theme text NOT NULL DEFAULT 'dark', active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now())`)
+  await q(`CREATE TABLE IF NOT EXISTS users (id uuid PRIMARY KEY, email text UNIQUE NOT NULL, password_hash text NOT NULL, role text NOT NULL CHECK(role IN ('view','dev','Admin')), language text NOT NULL DEFAULT 'es', theme text NOT NULL DEFAULT 'light', active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now())`)
+  await q(`ALTER TABLE users ALTER COLUMN theme SET DEFAULT 'light'`)
   await q(`CREATE TABLE IF NOT EXISTS images (id uuid PRIMARY KEY, name text NOT NULL, mime text NOT NULL, data bytea NOT NULL, created_by uuid REFERENCES users(id), created_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz)` )
   await q(`CREATE TABLE IF NOT EXISTS blocks (id uuid PRIMARY KEY, name text NOT NULL, latest_version integer NOT NULL DEFAULT 0, deleted_at timestamptz)`)
   await q(`CREATE TABLE IF NOT EXISTS block_categories (id uuid PRIMARY KEY, slug text UNIQUE NOT NULL, name text NOT NULL, name_key text NOT NULL, parent_id uuid REFERENCES block_categories(id), deleted_at timestamptz)`)
+  await q(`ALTER TABLE block_categories ADD COLUMN IF NOT EXISTS icon text`)
+  await q(`UPDATE block_categories SET icon=CASE slug WHEN 'alimentacion' THEN 'power' WHEN 'controladores' THEN 'cpu' WHEN 'sensores' THEN 'sensor' ELSE 'cube' END WHERE parent_id IS NULL AND icon IS NULL`)
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS block_categories_sibling_name ON block_categories (coalesce(parent_id,'00000000-0000-0000-0000-000000000000'::uuid),name_key) WHERE deleted_at IS NULL`)
   await q(`ALTER TABLE blocks ADD COLUMN IF NOT EXISTS category_slug text`)
   await q(`ALTER TABLE blocks ADD COLUMN IF NOT EXISTS subcategory_slug text`)
@@ -47,6 +51,8 @@ export async function initDb() {
   await q(`ALTER TABLE sync_jobs ADD COLUMN IF NOT EXISTS target_repository text`)
   await q(`ALTER TABLE sync_jobs ADD COLUMN IF NOT EXISTS target_branch text`)
   await q(`UPDATE sync_jobs SET status='skipped',error='Configura un repositorio en el proyecto para sincronizar' WHERE kind='project' AND target_repository IS NULL AND status='pending'`)
+  await q(`UPDATE sync_jobs SET status='skipped',error='La sincronización global de la biblioteca fue retirada' WHERE kind='block' AND status='pending'`)
+  await initAiDb(q)
   const count = await q('SELECT count(*)::int AS n FROM users')
   if (count.rows[0].n === 0) {
     const password = process.env.ADMIN_PASSWORD || crypto.randomBytes(12).toString('base64url')
@@ -84,7 +90,7 @@ export async function initDb() {
     ]
     for (const [slug, name, childSlug, childName] of roots) {
       const id = crypto.randomUUID()
-      await q('INSERT INTO block_categories(id,slug,name,name_key) VALUES($1,$2,$3,$4) ON CONFLICT(slug) DO NOTHING', [id, slug, name, name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()])
+      await q('INSERT INTO block_categories(id,slug,name,name_key,icon) VALUES($1,$2,$3,$4,$5) ON CONFLICT(slug) DO NOTHING', [id, slug, name, name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(), { sensores: 'sensor', controladores: 'cpu', alimentacion: 'power' }[slug]])
       const root = (await q('SELECT id FROM block_categories WHERE slug=$1', [slug])).rows[0]
       await q('INSERT INTO block_categories(id,slug,name,name_key,parent_id) VALUES($1,$2,$3,$4,$5) ON CONFLICT(slug) DO NOTHING', [crypto.randomUUID(), childSlug, childName, childName.toLowerCase(), root.id])
     }
