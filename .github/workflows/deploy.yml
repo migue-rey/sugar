@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:17-alpine
@@ -22,7 +22,7 @@ jobs:
           POSTGRES_DB: sugar_ai
         ports: ['5432:5432']
         options: >-
-          --health-cmd 'pg_isready -U designer -d sugar_ai'
+          --health-cmd "pg_isready -U designer -d sugar_ai"
           --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -61,7 +61,7 @@ jobs:
   publish:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -87,7 +87,7 @@ jobs:
   deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: publish
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: read
@@ -109,3 +109,5 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           trap 'rm -f ~/.ssh/sugar_deploy' EXIT
           printf '%s\n' "$REGISTRY_TOKEN" | ssh -T -i ~/.ssh/sugar_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$DEPLOY_USER@$DEPLOY_HOST" "deploy $DEPLOY_SHA"
+      - name: Verify public HTTPS endpoint
+        run: curl --fail --show-error --silent --retry 6 --retry-delay 5 https://sugar.maykolrey.com/api/health
