@@ -26,6 +26,15 @@ test('validates optional RGB hex colors on ports', () => {
   assert.equal(validateBlock(unquoted).ports[0].color, '#FF0000')
   assert.match(normalizeColorLiterals(unquoted), /color: "#FF0000"/)
 })
+test('validates header colors and notes while keeping older blocks usable', () => {
+  assert.equal(validateBlock(stringify(sensor)).color, undefined)
+  const changed = { ...sensor, color: '#2040A0', properties: { notes: 'Salida de 3.3 V\nRevisar tolerancia' } }
+  assert.equal(validateBlock(stringify(changed)).properties.notes, changed.properties.notes)
+  assert.equal(validateProject(stringify({ name: 'Copia', nodes: [node('sensor', changed)], edges: [] })).nodes[0].block.color, '#2040A0')
+  assert.equal(validateBlock('name: Sensor\nfunction: Medir\ncolor: #FF0000\nports:\n  - id: p\n    label: P\n    protocol: POWER\n    direction: out\n').color, '#FF0000')
+  for (const color of ['red', '#F00', '#GG0000', 42]) assert.throws(() => validateBlock(stringify({ ...changed, color })), /color del bloque/)
+  for (const notes of [5, { text: 'x' }, ['x']]) assert.throws(() => validateBlock(stringify({ ...changed, properties: { notes } })), /properties.notes/)
+})
 test('accepts connection route coordinates and rejects invalid ones', () => {
   const doc = { name: 'Rutas', nodes: [node('mcu', controller), node('sensor', sensor)], edges: [{ id: 'e1', source: 'mcu', sourcePort: 'i2c', target: 'sensor', targetPort: 'i2c', route: { x: 180, y: -25 } }] }
   assert.deepEqual(validateProject(stringify(doc)).edges[0].route, { x: 180, y: -25 })

@@ -25,11 +25,13 @@ export function validateBlock(text) {
   if (b.subcategory != null && (typeof b.subcategory !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(b.subcategory))) fail('subcategory debe ser un identificador válido')
   if (b.subcategory && !b.category) fail('subcategory requiere category')
   if (b.model != null && typeof b.model !== 'string') fail('model debe ser texto')
+  if (b.color != null && (typeof b.color !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(b.color))) fail('color del bloque debe ser RGB hexadecimal, por ejemplo "#FF0000"')
   if (b.image != null && b.image !== '') {
     if (typeof b.image !== 'string' || b.image.length > 2048 || !(b.image.startsWith('https://') || /^\/api\/images\/[0-9a-f-]{36}\/content$/.test(b.image))) fail('image debe ser una URL HTTPS o una ruta de la galería')
     if (b.image.startsWith('https://')) { try { new URL(b.image) } catch { fail('URL de imagen inválida') } }
   }
   if (b.properties != null && !object(b.properties)) fail('properties debe ser un mapa')
+  if (b.properties?.notes != null && typeof b.properties.notes !== 'string') fail('properties.notes debe ser texto')
   if (b.properties?.url != null && b.properties.url !== '') {
     if (!webUrl(b.properties.url)) fail('properties.url debe ser una URL HTTP o HTTPS')
   }

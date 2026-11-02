@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveRoute, routePoints, routeControls, moveRoute } from '../src/edgeRouting.ts'
+import { resolveRoute, routePoints, routeControls, moveRoute, arrowHead } from '../src/edgeRouting.ts'
 const source={x:770,y:302}, target={x:343,y:216}, saved={x:821,y:91}
 test('legacy upper route exposes the missing target-side vertical handle',()=>{
   const route=resolveRoute(source,target,saved)
@@ -38,4 +38,14 @@ test('zero/short legs do not show misleading controls and overlapping legs have 
   const coincident={x:821,y:91,targetX:821}, flatTarget={x:343,y:302}
   const handles=routeControls(source,flatTarget,coincident)
   assert.equal(handles.length,2);assert.notDeepEqual(handles[0].point,handles[1].point)
+})
+test('arrowheads follow the first and last visible segments after route movement',()=>{
+  const horizontal=routePoints({x:0,y:0},{x:100,y:0},resolveRoute({x:0,y:0},{x:100,y:0}))
+  assert.equal(arrowHead(horizontal,'target'),'86,0 77,4.5 77,-4.5')
+  assert.equal(arrowHead(horizontal,'source'),'14,0 23,-4.5 23,4.5')
+  const routed=routePoints({x:0,y:0},{x:100,y:80},resolveRoute({x:0,y:0},{x:100,y:80},{x:60,y:40,targetX:80}))
+  assert.equal(arrowHead(routed,'target'),'86,80 77,84.5 77,75.5')
+  const moved=routePoints({x:0,y:0},{x:100,y:80},resolveRoute({x:0,y:0},{x:100,y:80},{x:60,y:40,targetX:100}))
+  assert.equal(arrowHead(moved,'target'),'100,66 95.5,57 104.5,57')
+  assert.equal(arrowHead([{x:0,y:0},{x:0,y:0}],'target'),null)
 })

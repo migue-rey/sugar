@@ -114,3 +114,11 @@ html,body,#app{height:100%;overflow:hidden}
  .editor-main .palette-hidden .canvas{grid-column:1}
 }
 @media(max-width:800px){.editor-main .editor-layout{grid-template-columns:120px minmax(0,1fr)}}
+
+.node-header.has-custom-color .node-symbol { color: inherit; }
+.block-extra-fields { margin: 16px 0; }
+.block-extra-fields textarea { display: block; width: 100%; min-height: 90px; resize: vertical; margin-top: 7px; color: var(--text); }
+.block-color-inputs { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.block-color-inputs input[type="color"] { width: 42px; height: 40px; flex: none; padding: 3px; cursor: pointer; }
+.block-color-inputs input[type="text"] { flex: 1; min-width: 0; margin-top: 0; }
+.block-color-inputs button { flex: none; }

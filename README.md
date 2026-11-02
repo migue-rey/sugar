@@ -21,7 +21,7 @@ The same Compose file starts the web frontend, API and PostgreSQL. Data is kept 
 - **Library:** edit a block definition in YAML. Use **Expand editor** to hide the block list and give the YAML the available width. Validation errors stay visible at the top of the screen and beside the editor. Every save creates an immutable version. Existing projects contain the selected version's snapshot, so they do not change until someone updates an instance deliberately. A block can show an identifying image from an HTTPS URL or a gallery URL. Upload PNG, JPEG or WebP images (up to 1 MB) in **Image gallery**, copy the URL, then paste it into a block image field. YAML stores only the URL. Gallery images are stored in PostgreSQL and included in the Compose volume backup. If the URL stops working, assign another image URL.
 - **Categories:** Admin manages a two-level category catalog in the library. Block YAML stores a stable `category` and optional `subcategory` slug. New and edited library blocks require an active category; older blocks remain available under **Uncategorized** until classified. Expand category and subcategory rows independently in the library or canvas palette. Search both lists by name, function, model, category, port label or protocol; search ignores accents and case. Renaming a category preserves its slug and existing YAML. Categories in use cannot be removed.
 - **Image gallery:** `dev` and `Admin` can upload images; everyone can browse and copy their URLs. Only `Admin` can delete images. Deleting an image leaves existing block URLs in place, so they can be reassigned.
-- **Block properties:** select a block on the canvas to see its `properties` values. Use `properties.urls` for named HTTP(S) links such as datasheets and papers. The inspector and library editor can add, edit, remove and open these links. Existing `properties.url` links remain supported.
+- **Block properties:** select a block on the canvas to see its `properties` values. Set the optional top-level `color` to change only its header; the editor chooses readable text and icon contrast. Use `properties.notes` for multiline notes and `properties.urls` for named HTTP(S) links such as datasheets and papers. The inspector and library editor can edit these fields. Existing `properties.url` links remain supported. Library values are copied into projects and can be changed per instance.
 - **History:** compare two revisions with a text diff, or restore one as a new revision. Concurrent edits return a conflict instead of overwriting changes.
 - **Export:** project YAML includes its block snapshots. Gallery image URLs resolve on the same installation; for use elsewhere, replace those URLs or host the images at stable HTTPS addresses. SVG and PNG exports capture the current canvas viewport.
 
@@ -35,8 +35,12 @@ category: sensores
 subcategory: temperatura
 # Optional: HTTPS image URL or a URL copied from the gallery.
 image: https://example.com/bme280.png
+color: "#2040A0"
 properties:
   range: -40..85 °C
+  notes: |-
+    Mount away from the power regulator.
+    Check the enclosure temperature rise.
   urls:
     - datasheet: https://example.com/bme280-datasheet.pdf
     - paper: https://example.com/bme280-paper.pdf
@@ -54,7 +58,7 @@ ports:
     color: "#FF0000"
 ```
 
-A port can use any non-empty protocol text, such as `I2C`, `CSI`, `LVDS`, or `PAC`. Two ports connect when their protocol text matches after trimming outer whitespace; matching is case-sensitive. Directions are `in`, `out`, and `bidirectional`. The server also validates direction, port existence and connection limits. A port may set `color` to a six-digit RGB hexadecimal value (for example `"#FF0000"`). The source port color paints the connection; if it has no color, the target port color is used. Quoted values follow standard YAML. The editor also accepts an unquoted six-digit color such as `color: #FF0000` and quotes it when the block is saved. The YAML editor accepts an unfinished draft but will not apply or save it until validation succeeds.
+A port can use any non-empty protocol text, such as `I2C`, `CSI`, `LVDS`, or `PAC`. Two ports connect when their protocol text matches after trimming outer whitespace; matching is case-sensitive. Directions are `in`, `out`, and `bidirectional`. Connections show an arrow toward their target; when both ports are bidirectional, they show arrows at both ends. The server also validates direction, port existence and connection limits. A port may set `color` to a six-digit RGB hexadecimal value (for example `"#FF0000"`). The source port color paints the connection; if it has no color, the target port color is used. Quoted values follow standard YAML. The editor also accepts an unquoted six-digit color such as `color: #FF0000` and quotes it when the block is saved. The YAML editor accepts an unfinished draft but will not apply or save it until validation succeeds.
 
 ## Roles
 

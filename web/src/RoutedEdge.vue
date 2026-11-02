@@ -2,8 +2,8 @@
 import { computed, onBeforeUnmount } from 'vue'
 import { BaseEdge, useVueFlow, type EdgeProps } from '@vue-flow/core'
 
-import { resolveRoute, routePoints, routeControls, moveRoute, type Point, type EdgeRoute, type ResolvedRoute, type RouteControl } from './edgeRouting'
-const props = defineProps<EdgeProps<{ route?: EdgeRoute; editable?: boolean; color?: string; labelColor?: string }>>()
+import { resolveRoute, routePoints, routeControls, moveRoute, arrowHead, type Point, type EdgeRoute, type ResolvedRoute, type RouteControl } from './edgeRouting'
+const props = defineProps<EdgeProps<{ route?: EdgeRoute; editable?: boolean; color?: string; labelColor?: string; bidirectional?: boolean }>>()
 const { screenToFlowCoordinate, updateEdgeData } = useVueFlow()
 
 // Preserve legacy routes and allow each vertical leg to move independently.
@@ -37,6 +37,8 @@ function roundedPath(raw: Point[], radius = 12) {
   return result + ` L ${last.x} ${last.y}`
 }
 const path = computed(() => roundedPath(points.value))
+const targetArrow = computed(() => arrowHead(points.value, 'target'))
+const sourceArrow = computed(() => props.data?.bidirectional ? arrowHead(points.value, 'source') : null)
 
 let drag: { control: RouteControl; pointerId: number; start: Point; original?: EdgeRoute; resolved: ResolvedRoute } | null = null
 function move(event: PointerEvent) {
@@ -66,7 +68,9 @@ onBeforeUnmount(stop)
 </script>
 
 <template>
-  <BaseEdge :id="id" :path="path" fill="none" :label="label" :label-style="{ fill: data?.labelColor || '#28241f' }" :label-x="labelPoint.x" :label-y="labelPoint.y - 18" :marker-end="markerEnd" :interaction-width="24" :style="data?.color ? { stroke: data.color } : undefined" />
+  <BaseEdge :id="id" :path="path" fill="none" :label="label" :label-style="{ fill: data?.labelColor || '#28241f' }" :label-x="labelPoint.x" :label-y="labelPoint.y - 18" :interaction-width="24" :style="data?.color ? { stroke: data.color } : undefined" />
+  <polygon v-if="targetArrow" :points="targetArrow" :fill="data?.color || 'currentColor'" data-arrow-end="target" pointer-events="none" aria-hidden="true" />
+  <polygon v-if="sourceArrow" :points="sourceArrow" :fill="data?.color || 'currentColor'" data-arrow-end="source" pointer-events="none" aria-hidden="true" />
   <template v-if="data?.editable && selected">
     <g v-for="control in controls" :key="control.field" class="edge-route-control" :data-route-control="control.field" :transform="`translate(${control.point.x} ${control.point.y})`" @pointerdown="start(control, $event)">
       <circle class="edge-route-handle-hit" r="17" />
