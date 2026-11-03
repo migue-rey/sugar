@@ -12,7 +12,16 @@ test('project policies preserve private/public, ownership and role permissions w
   for (const user of [owner, admin]) assert.equal(requireProjectAccess(privateProject, user, { edit: true }), privateProject)
   for (const user of [other, view]) denied(() => requireProjectAccess(privateProject, user), 'Proyecto privado')
   for (const user of [owner, other, view, admin]) assert.equal(requireProjectAccess(publicProject, user), publicProject)
-  assert.equal(requireProjectAccess(publicProject, other, { edit: true }), publicProject)
+  denied(() => requireProjectAccess(publicProject, other, { edit: true }), 'No tienes permiso para editar este proyecto')
+  for (const visibility of ['public', 'private']) {
+    const editorProject = { ...privateProject, visibility, member_role: 'editor' }
+    assert.equal(requireProjectAccess(editorProject, other, { edit: true }), editorProject)
+    const readerProject = { ...editorProject, member_role: 'reader' }
+    assert.equal(requireProjectAccess(readerProject, other), readerProject)
+    denied(() => requireProjectAccess(readerProject, other, { edit: true }), 'No tienes permiso para editar este proyecto')
+    denied(() => requireProjectAccess(editorProject, other, { ownerOnly: true }), 'Solo el creador o un administrador puede configurar este proyecto')
+    denied(() => requireProjectAccess(editorProject, view, { edit: true }), 'Se requiere rol dev o Admin')
+  }
   denied(() => requireProjectAccess(publicProject, view, { edit: true }), 'Se requiere rol dev o Admin')
   denied(() => requireProjectAccess(publicProject, other, { ownerOnly: true }), 'Solo el creador o un administrador puede configurar este proyecto')
   denied(() => requireProjectAccess(null, admin), 'Proyecto no encontrado', 404)

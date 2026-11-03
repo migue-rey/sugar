@@ -94,6 +94,40 @@ test('modular API preserves authenticated contracts and transactional behavior (
     assert.equal((await request(projectPath() + '/share', { method: 'POST', body: {}, cookie: outsider.cookie })).status, 403)
   })
 
+  await t.test('project members are explicit, owner-managed and independent of visibility', async () => {
+    const path = projectPath() + '/members'
+    for (const cookie of [viewer.cookie, outsider.cookie]) {
+      assert.equal((await request(path, { cookie })).status, 403)
+      assert.equal((await request(path, { cookie, method: 'PUT', body: { email: outsider.email, role: 'editor' } })).status, 403)
+    }
+    assert.equal((await ownerRequest(path, { method: 'PUT', body: { email: owner.email, role: 'reader' } })).status, 400)
+    assert.equal((await ownerRequest(path, { method: 'PUT', body: { email: viewer.email, role: 'editor' } })).status, 400)
+    assert.equal((await ownerRequest(path, { method: 'PUT', body: { email: outsider.email, role: 'Admin' } })).status, 400)
+    assert.equal((await ownerRequest(projectPath(), { method: 'PUT', body: { yaml: JSON.stringify(document('Denied')), expectedRevision: 1 }, cookie: outsider.cookie })).status, 403)
+    assert.equal((await request(projectPath() + '/restore', { method: 'POST', cookie: outsider.cookie, body: { revision: 1, expectedRevision: 1 } })).status, 403)
+    assert.equal((await request(projectPath() + '/analyses', { method: 'POST', cookie: outsider.cookie, body: {} })).status, 403)
+    assert.equal((await ownerRequest(path, { method: 'PUT', body: { email: outsider.email, role: 'reader' } })).status, 200)
+    assert.equal((await request(projectPath(), { cookie: outsider.cookie })).body.permissions.canEdit, false)
+    assert.equal((await ownerRequest(path, { method: 'PUT', body: { email: outsider.email, role: 'editor' } })).status, 200)
+    assert.equal((await request(projectPath(), { cookie: outsider.cookie })).body.permissions.canEdit, true)
+    assert.equal((await ownerRequest(path)).body.length, 1)
+    assert.equal((await ownerRequest(projectPath() + '/revisions')).body.length, 1)
+    const privateId = (await ownerRequest('/projects', { method: 'POST', body: { name: 'Private collaboration ' + suffix } })).body.id
+    const privatePath = '/projects/' + privateId
+    // Admin can manage access; editors of a private project can save/restore, not manage members.
+    assert.equal((await request(privatePath + '/members', { method: 'PUT', cookie: admin, body: { email: outsider.email, role: 'editor' } })).status, 200)
+    assert.equal((await request(privatePath, { cookie: outsider.cookie })).body.permissions.canEdit, true)
+    assert.equal((await request(privatePath + '/members', { cookie: outsider.cookie })).status, 403)
+    assert.deepEqual((await request(privatePath, { method: 'PUT', cookie: outsider.cookie, body: { yaml: JSON.stringify(document('Collaborator edit')), expectedRevision: 1 } })).body, { revision: 2 })
+    assert.deepEqual((await request(privatePath + '/restore', { method: 'POST', cookie: outsider.cookie, body: { revision: 1, expectedRevision: 2 } })).body, { revision: 3 })
+    assert.equal((await ownerRequest(privatePath + '/members', { method: 'PUT', body: { email: outsider.email, role: 'reader' } })).status, 200)
+    assert.equal((await request(privatePath, { cookie: outsider.cookie })).body.permissions.canEdit, false)
+    assert.equal((await request(privatePath, { method: 'PUT', cookie: outsider.cookie, body: { yaml: JSON.stringify(document('Denied')), expectedRevision: 3 } })).status, 403)
+    assert.equal((await ownerRequest(privatePath + '/members/' + outsider.id, { method: 'DELETE' })).status, 200)
+    assert.equal((await request(privatePath, { cookie: outsider.cookie })).status, 403)
+    assert.equal((await request('/projects', { cookie: outsider.cookie })).body.some(p => p.id === privateId), false)
+  })
+
   await t.test('concurrent saves, stale revisions, restoration, history, diff and YAML export', async () => {
     let result = await request(projectPath(), { method: 'PUT', cookie: outsider.cookie, body: { yaml: JSON.stringify(document('Other editor')), expectedRevision: 1 } })
     assert.deepEqual(result.body, { revision: 2 })
@@ -115,6 +149,7 @@ test('modular API preserves authenticated contracts and transactional behavior (
   })
 
   await t.test('private share links, revocation and visibility changes preserve access boundaries', async () => {
+    await ownerRequest(projectPath() + '/members/' + outsider.id, { method: 'DELETE' })
     assert.deepEqual((await ownerRequest(projectPath() + '/share', { method: 'POST', body: {} })).body, { path: '/?public=' + projectId })
     let result = await ownerRequest(projectPath() + '/settings', { method: 'PATCH', body: { visibility: 'private', sync_repository: 'owner/isolated-tests', expectedSettingsVersion: 2 } })
     assert.equal(result.body.settings_version, 3)
@@ -122,6 +157,12 @@ test('modular API preserves authenticated contracts and transactional behavior (
     const token = new URL('http://local' + result.body.path).searchParams.get('share')
     assert.equal(token.length, 43)
     assert.equal((await request('/shared/' + token)).status, 200)
+    await ownerRequest(projectPath() + '/members', { method: 'PUT', body: { email: viewer.email, role: 'reader' } })
+    assert.equal((await request(projectPath(), { cookie: viewer.cookie })).status, 200)
+    assert.equal((await request('/projects', { cookie: viewer.cookie })).body.some(p => p.id === projectId), true)
+    assert.equal((await request(projectPath(), { method: 'PUT', cookie: viewer.cookie, body: { yaml: JSON.stringify(document('Denied')), expectedRevision: 4 } })).status, 403)
+    await ownerRequest(projectPath() + '/members/' + viewer.id, { method: 'DELETE' })
+    assert.equal((await request(projectPath(), { cookie: viewer.cookie })).status, 403)
     assert.equal((await request(projectPath(), { cookie: outsider.cookie })).status, 403)
     assert.equal((await request(projectPath() + '/share', { method: 'DELETE', cookie: outsider.cookie })).status, 403)
     assert.equal((await ownerRequest(projectPath() + '/share', { method: 'DELETE' })).status, 200)
@@ -201,6 +242,23 @@ test('modular API preserves authenticated contracts and transactional behavior (
       assert.deepEqual(await snapshot(), before)
       await assert.rejects(service.settings(id, owner, { visibility: 'public', sync_repository: 'other/target', expectedSettingsVersion: 2 }), /Injected queue failure/)
       assert.deepEqual(await snapshot(), before)
+      // A save that began before a revoke must reread membership after obtaining the lock.
+      await ownerRequest('/projects/' + id + '/members', { method: 'PUT', body: { email: outsider.email, role: 'editor' } })
+      const revoker = await pool.connect()
+      let signalLock
+      const lockAttempted = new Promise(resolve => { signalLock = resolve })
+      const repo = createProjectRepository(q)
+      const lockedService = createProjectService({ projects: { ...repo, find: (...args) => { if (args[3]) signalLock(); return repo.find(...args) } }, transaction, enqueue, replaceEmbeddedImages })
+      try {
+        await revoker.query('BEGIN')
+        await revoker.query('SELECT id FROM projects WHERE id=$1 FOR UPDATE', [id])
+        await revoker.query('DELETE FROM project_members WHERE project_id=$1 AND user_id=$2', [id, outsider.id])
+        const deniedSave = assert.rejects(lockedService.save(id, outsider, { yaml: JSON.stringify(document('Revoked')), expectedRevision: 1 }), { status: 403 })
+        await lockAttempted
+        await revoker.query('COMMIT')
+        await deniedSave
+        assert.deepEqual(await snapshot(), before)
+      } finally { await revoker.query('ROLLBACK'); revoker.release() }
       // A failed block-version insertion also rolls back metadata and embedded-image migration.
       const created = await ownerRequest('/blocks', { method: 'POST', body: { yaml: JSON.stringify({ ...block, name: 'Rollback block ' + suffix }) } })
       const blockId = created.body.id, repository = createBlockRepository(q)

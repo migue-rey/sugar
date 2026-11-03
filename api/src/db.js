@@ -43,6 +43,8 @@ export async function initDb() {
   await q(`CREATE TABLE IF NOT EXISTS block_versions (block_id uuid NOT NULL REFERENCES blocks(id), version integer NOT NULL, yaml text NOT NULL, author_id uuid REFERENCES users(id), summary text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(block_id, version))`)
   await q(`CREATE TABLE IF NOT EXISTS projects (id uuid PRIMARY KEY, name text NOT NULL, revision integer NOT NULL DEFAULT 0, yaml text NOT NULL, deleted_at timestamptz, created_at timestamptz NOT NULL DEFAULT now())`)
   await q(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS created_by uuid REFERENCES users(id)`)
+  await q(`CREATE TABLE IF NOT EXISTS project_members (project_id uuid NOT NULL REFERENCES projects(id), user_id uuid NOT NULL REFERENCES users(id), role text NOT NULL CHECK(role IN ('editor','reader')), created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(project_id,user_id))`)
+  await q('CREATE INDEX IF NOT EXISTS project_members_user ON project_members(user_id,project_id)')
   await q(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'private' CHECK(visibility IN ('public','private'))`)
   await q(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS share_token text UNIQUE`)
   await q(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS sync_repository text`)

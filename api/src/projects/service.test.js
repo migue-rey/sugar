@@ -64,3 +64,17 @@ test('permission and validation failures happen before any write or queue operat
   assert.deepEqual(f.steps, [])
   assert.deepEqual(f.state(), before)
 })
+
+test('saving and restoring recheck membership inside the transaction before writing', async () => {
+  for (const operation of ['save', 'restore']) {
+    let reads = 0, writes = 0
+    const actor = { id: 'collaborator', role: 'dev' }, tx = async () => {}
+    const project = { id: 'p', created_by: 'owner', visibility: 'private', member_role: 'editor' }
+    const service = createProjectService({
+      projects: { find: async (id, userId, query, lock) => { reads++; if (lock) { assert.equal(query, tx); return { ...project, member_role: null } } return project }, revision: async () => ({ yaml }), save: async () => { writes++; return { revision: 2 } } },
+      transaction: fn => fn(tx), replaceEmbeddedImages: async () => { writes++ },
+    })
+    await assert.rejects(service[operation]('p', actor, { yaml, expectedRevision: 1, revision: 1 }), { status: 403 })
+    assert.equal(reads, 2); assert.equal(writes, 0)
+  }
+})

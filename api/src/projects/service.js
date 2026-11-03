@@ -1,12 +1,15 @@
 import crypto from 'node:crypto'
 import { createPatch } from 'diff'
 import { error, requiredText } from '../shared/http.js'
-import { requireAdmin, requireEdit, requireProjectAccess } from '../auth/policies.js'
+import { requireAdmin, requireEdit, requireProjectAccess, projectPermissions } from '../auth/policies.js'
 import { normalizeColorLiterals, stringify, validateProject } from '../model.js'
 import { repositorySettings } from './validation.js'
 
 export function createProjectService({ projects, transaction, enqueue, categoryIcons, replaceEmbeddedImages }) {
-  const get = async (id, user, options) => requireProjectAccess(await projects.find(id), user, options)
+  const get = async (id, user, options, tx, lock = false) => {
+    const project = requireProjectAccess(await projects.find(id, user.id, tx, lock), user, options)
+    return { ...project, permissions: projectPermissions(project, user) }
+  }
   const publicResult = async project => {
     const { id, name, yaml, revision, creator, visibility } = project
     return { id, name, yaml, revision, creator, visibility, category_icons: await categoryIcons(yaml) }
@@ -24,6 +27,29 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
       const project = await projects.shared(token)
       if (!project) error(404, 'Enlace no encontrado')
       return publicResult(project)
+    },
+    async members(id, user) { await get(id, user, { ownerOnly: true }); return projects.members(id) },
+    async setMember(id, user, input) {
+      await get(id, user, { ownerOnly: true })
+      const email = requiredText(input.email, 'Email').toLowerCase(), role = input.role
+      if (!['editor', 'reader'].includes(role)) error(400, 'Permiso de proyecto inválido')
+      return transaction(async tx => {
+        const current = await get(id, user, { ownerOnly: true }, tx, true)
+        const account = await projects.memberAccount(email, tx)
+        if (!account) error(404, 'Usuario activo no encontrado')
+        if (account.id === current.created_by) error(400, 'El propietario mantiene acceso al proyecto')
+        if (role === 'editor' && account.role === 'view') error(400, 'Los usuarios con rol view solo pueden ser lectores')
+        await projects.setMember(id, account.id, role, tx)
+        return { user_id: account.id, email: account.email, role, active: account.active }
+      })
+    },
+    async removeMember(id, user, memberId) {
+      await get(id, user, { ownerOnly: true })
+      await transaction(async tx => {
+        const current = await get(id, user, { ownerOnly: true }, tx, true)
+        if (memberId === current.created_by) error(400, 'El propietario mantiene acceso al proyecto')
+        await projects.removeMember(id, memberId, tx)
+      })
     },
     async create(user, input) {
       requireEdit(user)
@@ -46,6 +72,7 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
       const after = { visibility, sync_repository: repository, sync_branch: branch }
       if (JSON.stringify(before) !== JSON.stringify(after)) {
         await transaction(async tx => {
+          await get(id, user, { ownerOnly: true }, tx, true)
           const saved = await projects.settings(id, expected, visibility, repository, branch, tx)
           if (!saved) error(409, 'La configuración cambió; recarga antes de guardar')
           await projects.addSettingsHistory(id, user.id, before, after, tx)
@@ -65,10 +92,11 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
     },
     async revokeShare(id, user) { await get(id, user, { ownerOnly: true }); await projects.revokeShare(id) },
     async save(id, user, input) {
-      const current = await get(id, user, { edit: true })
+      await get(id, user, { edit: true })
       const yaml = normalizeColorLiterals(requiredText(input.yaml, 'YAML')), project = validateProject(yaml), expected = Number(input.expectedRevision)
       if (!Number.isInteger(expected) || expected < 1) error(400, 'Revisión esperada inválida')
       const revision = await transaction(async tx => {
+        const current = await get(id, user, { edit: true }, tx, true)
         const saved = await projects.save(id, expected, project.name, yaml, tx)
         if (!saved) error(409, 'El proyecto cambió; recarga antes de guardar')
         const revision = saved.revision
@@ -96,12 +124,13 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
       return createPatch('project.yaml', one.yaml, two.yaml, `revision ${a}`, `revision ${b}`)
     },
     async restore(id, user, input) {
-      const current = await get(id, user, { edit: true })
+      await get(id, user, { edit: true })
       const wanted = Number(input.revision), expected = Number(input.expectedRevision)
       if (!Number.isInteger(wanted) || !Number.isInteger(expected)) error(400, 'Revisión inválida')
       const source = await projects.revision(id, wanted)
       if (!source) error(404, 'Revisión no encontrada')
       const revision = await transaction(async tx => {
+        const current = await get(id, user, { edit: true }, tx, true)
         const yaml = normalizeColorLiterals(await replaceEmbeddedImages(source.yaml, 'project', tx))
         const doc = validateProject(yaml)
         const saved = await projects.save(id, expected, doc.name, yaml, tx)
