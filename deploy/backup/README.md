@@ -35,7 +35,7 @@ Para una recuperación autorizada, provisionar primero PostgreSQL/roles y una **
 
 El dump incluye usuarios de la aplicación, hashes, permisos, sesiones, proyectos, revisiones, imágenes bytea y configuración cifrada. No incluye roles globales PostgreSQL ni secretos del entorno. Conservar un paquete **separado y cifrado** con la `AI_ENCRYPTION_KEY` correspondiente, configuración y referencia de release; todavía no se genera automáticamente. Sin esa clave no se recuperan los tokens: el ensayo comprueba este fallo. No confundir identidad age y clave de la aplicación. Ver [manejo de secretos](../security/README.md).
 
-No iniciar API/workers durante ensayos. Antes de una recuperación real, revisar sesiones/enlaces restaurados, invalidar accesos que ya no correspondan y reconciliar trabajos de sincronización/IA para evitar reenvíos. Son acciones de una liberación autorizada, no del script.
+Tras restaurar con no-owner/no-acl, ejecutar el comando de mantenimiento con el propietario para provisionar el rol runtime y sus permisos antes de arrancar la API; ver [roles y migraciones](../database/README.md). No iniciar API/workers durante ensayos. Antes de una recuperación real, revisar sesiones/enlaces restaurados, invalidar accesos que ya no correspondan y reconciliar trabajos de sincronización/IA para evitar reenvíos. Son acciones de una liberación autorizada, no del script.
 
 ## Pendientes
 

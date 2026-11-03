@@ -13,6 +13,23 @@ services:
       timeout: 3s
       retries: 20
     restart: unless-stopped
+  migrate:
+    profiles: [maintenance]
+    build: ./api
+    user: '1000:1000'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    command: [node, src/migrate.js]
+    environment:
+      DATABASE_URL: postgres://designer:${DB_PASSWORD:-local-designer-password}@db:5432/hardware_designer
+      RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD:?Set RUNTIME_DB_PASSWORD to 64 hex characters}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
   api:
     build: ./api
     user: '1000:1000'
@@ -24,11 +41,9 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
     environment:
-      DATABASE_URL: postgres://designer:${DB_PASSWORD:-local-designer-password}@db:5432/hardware_designer
+      DATABASE_URL: postgres://sugar_runtime:${RUNTIME_DB_PASSWORD:?Set RUNTIME_DB_PASSWORD to 64 hex characters}@db:5432/hardware_designer
       AI_ENCRYPTION_KEY: ${AI_ENCRYPTION_KEY:-}
       JWT_SECRET: ${JWT_SECRET:-}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@local}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       GITHUB_APP_ID: ${GITHUB_APP_ID:-}
       GITHUB_INSTALLATION_ID: ${GITHUB_INSTALLATION_ID:-}
       GITHUB_PRIVATE_KEY: ${GITHUB_PRIVATE_KEY:-}
