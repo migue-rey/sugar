@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the real image/policy in disposable Compose, never the user's installation."""
 import json
+import argparse
 import os
 from pathlib import Path
 import subprocess
@@ -15,7 +16,7 @@ def run(args, **kwargs):
     return subprocess.run(args, check=True, text=True, capture_output=True, timeout=240, **kwargs).stdout
 
 
-def main():
+def main(preview=False):
     project = 'sugar-privilege-test-' + uuid.uuid4().hex[:10]
     env = {key: os.environ[key] for key in ['PATH', 'HOME', 'DOCKER_HOST', 'DOCKER_CONTEXT', 'XDG_RUNTIME_DIR'] if key in os.environ}
     env.update(DB_PASSWORD='synthetic-container-password', ADMIN_EMAIL='admin@example.invalid',
@@ -32,8 +33,13 @@ def main():
     services['api']['image'] = 'sugar-privilege-api-check'
     services['web']['image'] = 'sugar-privilege-web'
     services['web'].pop('ports', None)
+    if preview:
+        services['web']['ports'] = ['127.0.0.1:8091:80']
+        services['api']['environment'].update(PUBLIC_ORIGIN='http://localhost:8091', SESSION_SECURE='false')
     # No egress at all: providers are mocked inside the test-only image/process.
     networks = {name: {'internal': True} for name in config['networks']}
+    if preview:
+        networks['front'] = {}  # Docker publishes loopback only on a non-internal front network.
     config = {'services': services, 'networks': networks, 'volumes': {'postgres_data': {}}}
     with tempfile.TemporaryDirectory(prefix=project) as directory:
         file = Path(directory) / 'compose.json'
@@ -54,13 +60,18 @@ def main():
             run(base + ['restart', 'api'], env=env)
             run(base + ['up', '-d', '--wait', '--wait-timeout', '120'], env=env)
             print(run(base + ['exec', '-T', 'api', 'node', '/checks/verify.mjs', 'persist'], input=state, env=env))
+            if preview:
+                print('Synthetic preview: http://localhost:8091 — press Enter to clean up.', flush=True)
+                input()
         finally:
             run(base + ['down', '-v', '--remove-orphans'], env=env)
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--preview', action='store_true', help='Keep synthetic HTTP preview until Enter')
     try:
-        main()
+        main(parser.parse_args().preview)
     except subprocess.CalledProcessError as error:
         # Test fixtures only, but never dump rendered configuration or environment.
         print(error.stderr)

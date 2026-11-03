@@ -52,6 +52,7 @@ services:
       AUTH_HASH_CONCURRENCY: ${AUTH_HASH_CONCURRENCY:-4}
       AUTH_MAX_KEYS: ${AUTH_MAX_KEYS:-20000}
       PORT: 3000
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-https://sugar.maykolrey.com}
     mem_limit: 384m
     depends_on:
       db:

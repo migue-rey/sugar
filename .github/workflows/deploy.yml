@@ -84,6 +84,7 @@ jobs:
           docker build -f deploy/containers/Dockerfile.test -t sugar-privilege-api-check .
           docker build -t sugar-privilege-web web
           python3 deploy/containers/smoke.py
+          python3 -m unittest discover -s deploy/headers -p 'test_*.py'
       - run: npm ci
         working-directory: web
       - run: npm test && npm run build

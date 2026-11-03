@@ -4,6 +4,7 @@ import { errorHandler } from './shared/http.js'
 import { requireAdmin, requireEdit } from './auth/policies.js'
 import { createSessionRepository } from './auth/sessions.js'
 import { createAccessControls, limitsConfig, proxyList } from './security/limits.js'
+import { apiHeaders, publicOrigin, requestOrigin } from './security/headers.js'
 import { createAuthService } from './auth/service.js'
 import { authenticate, registerAuthRoutes, registerSessionRoutes } from './auth/routes.js'
 import { createUserRepository } from './users/repository.js'
@@ -29,15 +30,17 @@ import { registerSyncRoutes } from './github/routes.js'
 
 // Composition only: no DB initialization, listener, timers or background workers.
 // Query, transaction, session secret and GitHub operations belong to the caller.
-export function createApp({ q, transaction, secret, enqueue, syncOne, callProvider, sessionSecure = process.env.SESSION_SECURE === 'true', accessConfig = limitsConfig(), trustedProxies = process.env.TRUSTED_PROXIES || '' }) {
+export function createApp({ q, transaction, secret, enqueue, syncOne, callProvider, sessionSecure = process.env.SESSION_SECURE === 'true', accessConfig = limitsConfig(), trustedProxies = process.env.TRUSTED_PROXIES || '', origin = process.env.PUBLIC_ORIGIN || '' }) {
   const app = express()
   app.set('trust proxy', proxyList(trustedProxies))
+  app.disable('x-powered-by')
+  app.disable('etag')
+  app.use('/api', apiHeaders, requestOrigin(publicOrigin(origin)))
   const controls = createAccessControls({ secret, config: accessConfig })
   app.use('/api', controls.api)
   app.post(['/api/login', '/api/me/password', '/api/users'], express.json({ limit: '4kb' }))
   app.use(express.json({ limit: '3mb' }))
   app.use(cookieParser())
-  app.disable('x-powered-by')
 
   const userRepository = createUserRepository(q, transaction)
   const auth = createAuthService({ users: userRepository, sessions: createSessionRepository(q, transaction), secret, runCredential: controls.runCredential })
