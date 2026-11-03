@@ -5,6 +5,7 @@ import io
 from datetime import datetime, timezone, timedelta
 import json
 from pathlib import Path
+import tempfile
 from unittest.mock import patch
 import unittest
 from vulnerabilities import apply_policy, fresh_database, image_findings, npm_findings
@@ -87,6 +88,20 @@ class VulnerabilityTests(unittest.TestCase):
             self.assertEqual(SCANNER.main(), 2)
         self.assertIn('BLOCKED', output.getvalue())
         self.assertNotIn('synthetic-private-diagnostic', output.getvalue())
+
+    def test_only_successful_complete_scan_writes_release_manifest(self):
+        for findings in ([], [self.finding()]):
+            with tempfile.TemporaryDirectory() as directory:
+                manifest = Path(directory) / 'manifest.json'
+                manifest.write_text('previous-success')
+                argv = ['scan', '--npm', '--images', 'api', 'web', 'db', '--manifest', str(manifest), '--commit', 'a' * 40]
+                def images(refs, provenance):
+                    provenance.update({scope: {'id': 'fixture'} for scope in ('api-image', 'web-image', 'database-image')})
+                    return findings
+                with patch('sys.argv', argv), patch.object(SCANNER, 'audits', return_value=[]), \
+                        patch.object(SCANNER, 'images', side_effect=images), contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(SCANNER.main(), int(bool(findings)))
+                self.assertEqual(manifest.exists(), not bool(findings))
 
     def test_download_has_no_source_and_scans_are_offline(self):
         commands = []

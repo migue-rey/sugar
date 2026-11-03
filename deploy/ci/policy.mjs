@@ -21,6 +21,15 @@ export function validate(workflow) {
   if (!scanSteps.some(step => step.run?.includes('python3 deploy/ci/scan-secrets.py'))) errors.push('Secret scan must execute the detector')
   if (!scanSteps.some(step => step.uses?.startsWith('actions/checkout@') && step.with?.['fetch-depth'] === 0)) errors.push('Secret scan requires complete history')
   if (!(jobs.test?.steps || []).some(step => step.run?.includes('python3 deploy/ci/scan-vulnerabilities.py --npm --images sugar-privilege-api sugar-privilege-web postgres:17-alpine'))) errors.push('Dependency and runtime image gate required')
+  const testSteps = jobs.test?.steps || []
+  const upload = testSteps.find(step => step.uses?.startsWith('actions/upload-artifact@'))
+  if (upload?.if !== releaseGuard || upload?.with?.['retention-days'] !== 1 || upload?.with?.['if-no-files-found'] !== 'error') errors.push('Release artifacts require main and bounded retention')
+  if (!testSteps.some(step => step.if === releaseGuard && step.run?.includes('python3 deploy/ci/runtime-artifact.py export'))) errors.push('Release must export verified images')
+  if (!testSteps.some(step => step.run?.includes('--manifest "$RUNNER_TEMP/scanned-images.json" --commit "$GITHUB_SHA"'))) errors.push('Scan must bind images to the commit')
+  const publishSteps = jobs.publish?.steps || []
+  if (!publishSteps.some(step => step.uses?.startsWith('actions/download-artifact@') && !step.with?.['run-id'] && !step.with?.['github-token'])) errors.push('Publication requires artifacts from this run')
+  if (!publishSteps.some(step => step.run?.includes('python3 deploy/ci/runtime-artifact.py promote') && step.run.includes('--push'))) errors.push('Publication must verify scanned images')
+  if (publishSteps.some(step => step.uses?.startsWith('docker/build-push-action@') || step.run?.includes('docker build'))) errors.push('Do not rebuild images after scanning')
   for (const name of ['test', 'secrets']) {
     const job = jobs[name] || {}
     if (job.environment || Object.values(job.permissions || {}).some(value => value !== 'read')) errors.push(name + ': unprivileged validation required')

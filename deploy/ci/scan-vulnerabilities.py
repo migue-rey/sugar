@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 from vulnerabilities import apply_policy, fresh_database, image_findings, npm_findings
@@ -45,7 +46,7 @@ def audits():
     return findings
 
 
-def images(refs):
+def images(refs, provenance=None):
     findings = []
     checked(['docker', 'pull', IMAGE])
     with tempfile.TemporaryDirectory(prefix='sugar-image-scan-') as directory:
@@ -68,6 +69,8 @@ def images(refs):
                     '--skip-java-db-update', '--offline-scan', '--scanners', 'vuln',
                     '--ignorefile', '/dev/null', '--no-progress', '--format', 'json', '--output', '/output/report.json'])
             findings.extend(image_findings(json.loads((output / 'report.json').read_text()), scope, image_id))
+            if provenance is not None:
+                provenance[scope] = {'ref': ref, 'id': image_id}
             archive.unlink()
     return findings
 
@@ -76,16 +79,28 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--npm', action='store_true')
     parser.add_argument('--images', nargs=3, metavar=('API', 'WEB', 'DATABASE'))
+    parser.add_argument('--manifest', type=Path)
+    parser.add_argument('--commit')
     args = parser.parse_args()
     if not args.npm and not args.images:
         parser.error('choose --npm and/or --images')
+    if (args.manifest or args.commit) and not (args.manifest and args.images and args.npm and re.fullmatch(r'[a-f0-9]{40}', args.commit or '')):
+        parser.error('manifest requires all scopes and a full commit SHA')
     try:
+        # A failed rescan must never leave a previous successful manifest behind.
+        if args.manifest:
+            args.manifest.unlink(missing_ok=True)
         findings = audits() if args.npm else []
+        provenance = {}
         if args.images:
-            findings.extend(images(args.images))
+            findings.extend(images(args.images, provenance))
         exceptions = json.loads(Path(__file__).with_name('vulnerability-exceptions.json').read_text())
         # Exceptions are evaluated across all scopes in a single invocation.
         blocked = apply_policy(findings, exceptions, datetime.now(timezone.utc))
+        if args.manifest and not blocked:
+            if set(provenance) != {'api-image', 'web-image', 'database-image'}:
+                raise ValueError('missing image scan provenance')
+            args.manifest.write_text(json.dumps({'version': 1, 'commit': args.commit, 'images': provenance}))
         scopes = (['api-runtime', 'api-build', 'web-runtime', 'web-build'] if args.npm else []) + (['api-image', 'web-image', 'database-image'] if args.images else [])
         for scope in scopes:
             group = [item for item in findings if item['scope'] == scope]

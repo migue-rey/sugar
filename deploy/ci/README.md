@@ -50,7 +50,7 @@ python3 -m unittest discover -s deploy/ci -p 'test_vulnerabilities.py'
 python3 deploy/ci/scan-vulnerabilities.py --npm --images sugar-privilege-api sugar-privilege-web postgres:17-alpine
 ```
 
-El gate corre al final del job `test`, después de las pruebas funcionales, reutilizando las imágenes realmente construidas; `publish` continúa dependiendo de ese job y de Secret scan. Las acciones oficiales se actualizaron a checkout 7.0.1, setup-node 7.1.0, Buildx 4.4.1, login 4.7.0 y build-push 7.4.0, con SHA inmutable. Esto actualiza el runtime de Actions; la aplicación conserva Node 22. Los guards de main, permisos mínimos y checkout sin credenciales se conservan.
+El gate corre al final del job `test`, después de las pruebas funcionales, reutilizando las imágenes realmente construidas; `publish` continúa dependiendo de ese job y de Secret scan. Las acciones oficiales se actualizaron a checkout 7.0.1, setup-node 7.1.0, login 4.7.0, upload-artifact 7.0.2 y download-artifact 8.0.2, con SHA inmutable. Ya no se usan acciones de reconstrucción en el job de publicación. Esto actualiza el runtime de Actions; la aplicación conserva Node 22. Los guards de main, permisos mínimos y checkout sin credenciales se conservan.
 
 ### Resultado inicial y límites pendientes
 
@@ -58,7 +58,13 @@ El 3 de noviembre, npm no informó avisos en ninguno de los cuatro ámbitos. Tri
 
 La imagen web Nginx 1.30.6/Alpine 3.24.3 informó inicialmente seis hallazgos HIGH/CRITICAL en brotli-libs, curl/libcurl y libexpat. Tras actualizar los paquetes de esa misma rama Alpine con `apk upgrade --no-cache`, su escaneo no informó vulnerabilidades. **El gate completo actualmente bloquea**: PostgreSQL 17.11/Alpine 3.24.3 informó 27 HIGH en Go stdlib/x/sys dentro de gosu, herramienta de cambio de usuario de su entrypoint. Consultar los informes del job para versiones/CVE vigentes. La etiqueta oficial de PostgreSQL se volvió a descargar y no cambió. No se aprobaron excepciones, no se modificó el volumen y no se afirma explotación remota de estos componentes. Su remediación/evaluación específica es la siguiente etapa de #14; no se declara verde ni se cierra el issue.
 
-El pipeline de publicación reconstruye desde el mismo commit después del gate y sus bases todavía usan tags del proveedor: no es promoción byte por byte del mismo digest escaneado. Antes de liberar, completar la promoción de artefactos idénticos o fijar y verificar los digests efectivos; los avisos y configuración externa pendientes tampoco autorizan liberar. Un escaneo sin avisos solo refleja las fuentes disponibles en ese momento, no garantiza ausencia de vulnerabilidades.
+### Promoción de imágenes analizadas
+
+Solo un análisis completo correcto genera un manifiesto con commit e identidades locales de las tres imágenes; un fallo borra cualquier manifiesto anterior. En main, después del gate, `runtime-artifact.py export` confirma que API/web conservan la misma identidad, las guarda por ID y añade SHA-256 de los tar. El artefacto de Actions se conserva un día y se descarga exclusivamente de la misma ejecución. Las ramas dev y PR no lo exportan ni suben.
+
+Publicación valida commit, nombres esperados, hashes de archivo e identidad Docker tras la carga, y etiqueta/sube esas imágenes API/web a GHCR **sin reconstruir**. El destino es fijo, no lo decide el manifiesto. Fallos de integridad bloquean antes del push; solo el comando con `--push` puede publicar. Los hashes detectan cambios de transporte, no sustituyen revisión humana ni una firma/atestación del proveedor. Los tests cubren alteraciones de archivo/commit/imagen, cambios posteriores al escaneo, ausencia de push implícito y transporte Docker real de imágenes scratch ficticias sin ejecutar contenedores ni acceder al registro. El camino de subir/descargar artefactos de GitHub y push real queda para una liberación autorizada: dev lo omite deliberadamente.
+
+PostgreSQL todavía usa la etiqueta oficial de Compose, no se promueve con este mecanismo: completar su remediación y fijación/promoción de identidad antes de liberar. Las bases de construcción usan tags del proveedor, pero el runtime API/web que se publique será el mismo que pasó el gate en esa ejecución. Los avisos y configuración externa pendientes tampoco autorizan liberar. Un escaneo sin avisos solo refleja las fuentes disponibles en ese momento, no garantiza ausencia de vulnerabilidades.
 
 Reversión durante liberación autorizada: conservar workflow/reglas anteriores, revisar qué checks son obligatorios y evitar que un cambio de nombre bloquee PR. No debilitar reglas, saltar un gate de secretos ni eliminar credenciales para resolver un fallo de CI. Esta entrega no altera datos, servicios existentes ni producción.
 
