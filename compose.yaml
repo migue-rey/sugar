@@ -15,6 +15,14 @@ services:
     restart: unless-stopped
   api:
     build: ./api
+    user: '1000:1000'
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    pids_limit: 128
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
     environment:
       DATABASE_URL: postgres://designer:${DB_PASSWORD:-local-designer-password}@db:5432/hardware_designer
       AI_ENCRYPTION_KEY: ${AI_ENCRYPTION_KEY:-}

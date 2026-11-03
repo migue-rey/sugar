@@ -1,0 +1,4 @@
+FROM sugar-privilege-api
+COPY api/test-support/deepseek-mock.mjs /checks/deepseek-mock.mjs
+COPY deploy/containers/verify.mjs /checks/verify.mjs
+CMD ["node", "--import", "/checks/deepseek-mock.mjs", "src/server.js"]

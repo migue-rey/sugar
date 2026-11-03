@@ -22,6 +22,14 @@ services:
         max-file: '3'
     restart: unless-stopped
   api:
+    user: '1000:1000'
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    pids_limit: 128
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
     networks: [application, database, egress]
     image: ghcr.io/picli3/sugar-api:${IMAGE_TAG:?Set IMAGE_TAG to a commit SHA}
     environment:

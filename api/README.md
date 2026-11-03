@@ -5,6 +5,7 @@ El backend sigue usando Express y PostgreSQL. Las rutas se organizan por funcion
 ## Arranque y composición
 
 - `src/server.js`: punto de entrada de Docker y `npm start`. Espera la base de datos, ejecuta las inicializaciones existentes, obtiene el secreto de sesión, crea la aplicación, inicia explícitamente el sincronizador y abre el puerto HTTP.
+- La imagen Docker usa UID/GID 1000; Compose restringe capacidades, escrituras y procesos. Ver [política y compatibilidad de archivos privados](../deploy/containers/README.md). Esto aún no separa los privilegios del rol PostgreSQL ni las migraciones del arranque.
 - `src/app.js`: `createApp({ q, transaction, secret, enqueue, syncOne, callProvider?, sessionSecure? })` configura Express y conecta repositorios, servicios y rutas. No ejecuta migraciones, consultas, `listen()` ni trabajos periódicos. Puede importarse y crear aplicaciones para pruebas con dependencias controladas.
 - `src/db.js`: pool PostgreSQL, transacciones, inicialización y secreto persistente. `transaction(fn)` entrega a `fn` una función `tx(sql, args)` ligada a la misma conexión; confirma o revierte y libera la conexión.
 - `src/shared/http.js`: adaptación de promesas a Express, errores de dominio con estado HTTP, validación de texto y traducción de errores a las respuestas JSON existentes.

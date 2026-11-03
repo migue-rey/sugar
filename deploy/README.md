@@ -43,3 +43,7 @@ Producción usa redes separadas: front para web; application interna para web/AP
 ### Backups cifrados (#11, etapa 1)
 
 El [creador cifrado y ensayo de recuperación](backup/README.md) prepara archivos age mediante un destinatario público y comprueba restauración con datos ficticios. No reemplaza los dumps previos al despliegue ni instala tareas. Transferencia externa, paquete de claves/configuración, retención, alertas y activación siguen pendientes. No se ha respaldado ni restaurado producción con esta herramienta.
+
+### API sin root (#12, etapa 1)
+
+La API usa UID/GID 1000, raíz de solo lectura, tmpfs acotado y restricciones de capacidades/procesos en ambos Compose. Ver [ensayo, compatibilidad de secretos y reversión](containers/README.md). El usuario de PostgreSQL y las migraciones al arrancar todavía no cambian: su separación es la siguiente etapa. Esta configuración no se aplicó a producción ni a la instalación local existente.

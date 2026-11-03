@@ -76,6 +76,14 @@ jobs:
           set -euo pipefail
           docker build -f deploy/backup/Dockerfile.test -t sugar-backup-test .
           python3 deploy/backup/smoke.py
+      - name: Isolated unprivileged API container
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s deploy/containers -p 'test_*.py'
+          docker build -t sugar-privilege-api api
+          docker build -f deploy/containers/Dockerfile.test -t sugar-privilege-api-check .
+          docker build -t sugar-privilege-web web
+          python3 deploy/containers/smoke.py
       - run: npm ci
         working-directory: web
       - run: npm test && npm run build
