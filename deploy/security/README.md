@@ -45,9 +45,22 @@ Docker y los administradores del host pueden inspeccionar el entorno: permisos d
 | --- | --- |
 | Clave SSH humana/CI | Añadir la nueva pública junto a la anterior, verificar huella y acceso nuevo/restringido; actualizar CI y probar. Retirar la vieja solo después. Si falla, restaurar authorized_keys de la copia desde consola. Una clave comprometida debe retirarse sin reactivarla como rollback. |
 | Contraseña Sugar | Cambiar mediante Configuración con la contraseña actual. Se invalidan todas las sesiones (#6). Recuperación sin contraseña requiere el flujo de #17 o una intervención de consola revisada; no usar variables bootstrap para restablecer una cuenta existente. |
-| JWT_SECRET | Respaldar configuración fuera de Git. Generar secreto aleatorio de al menos 32 bytes, reemplazarlo en todas las réplicas durante una parada controlada y exigir nuevo login. No reactivar una clave comprometida para recuperar sesiones antiguas. |
+| JWT_SECRET | Respaldar configuración fuera de Git. Preparar secreto aleatorio de al menos 32 bytes en todas las réplicas detenidas. Invalidar sesiones y retirar la clave heredada persistida como se indica abajo, antes de reiniciar y exigir nuevo login. No reactivar una clave comprometida ni dejar que el arranque vuelva a ella. |
 | AI_ENCRYPTION_KEY | No sustituir directamente: los tokens guardados están cifrados con ella. Conservar la clave antigua y backup cifrado, deshabilitar IA, reingresar el token con la nueva clave en una intervención autorizada y probar solo si se aprueba el consumo. Ante fallo, restaurar juntos datos cifrados y su clave; nunca mezclar versiones. No hay migración automática de claves. |
+| Token DeepSeek | Si se expuso, reemplazarlo y revocarlo también en el proveedor durante la intervención aprobada. Cambiar AI_ENCRYPTION_KEY no anula una API key robada. Mantener IA deshabilitada hasta guardar el nuevo token y aprobar cualquier prueba facturable. |
 | Credencial PostgreSQL/GitHub App | Coordinar emisor y consumidores, probar en un clon aislado, actualizar referencias y verificar salud/sincronización. Mantener una vía de reversión cuando el emisor lo permita. No ejecutar ALTER USER ni revocar instalaciones desde esta preparación. |
+
+Para rotar JWT, con backup verificado, todas las réplicas detenidas y la nueva configuración externa preparada, una intervención **autorizada** puede aplicar esta transacción (no ejecutada por esta entrega):
+
+```sql
+BEGIN;
+UPDATE users SET auth_version=auth_version+1;
+UPDATE user_sessions SET revoked_at=now() WHERE revoked_at IS NULL;
+DELETE FROM settings WHERE key='jwt_secret';
+COMMIT;
+```
+
+Así se invalidan las identidades previas y no queda una clave antigua a la que volver si se retira la configuración externa. Reiniciar con la clave nueva, comprobar que tokens anteriores fallan y que un nuevo login funciona; si se revierte una configuración por error operativo, conservar igualmente las identidades antiguas revocadas. Recuperación no significa reabrir sesiones comprometidas.
 
 Durante una recuperación, no abrir registro público, desactivar autenticación ni publicar bases/puertos para entrar. Restaurar acceso por consola, verificar archivos y claves, invalidar sesiones comprometidas y revisar auditoría antes de cerrar la intervención. Backups externos y segundo factor de la aplicación se resuelven en #11/#18.
 
