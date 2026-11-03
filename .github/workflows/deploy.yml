@@ -1,7 +1,7 @@
 name: Test, publish and deploy Sugar
 on:
   push:
-    branches: [main]
+    branches: [main, 'dev/**']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -11,8 +11,24 @@ concurrency:
   group: sugar-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan committed history with pinned offline detector
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+          python3 -m unittest discover -s deploy/ci -p 'test_*.py'
+          python3 deploy/ci/scan-secrets.py
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17-alpine
@@ -26,6 +42,8 @@ jobs:
           --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
@@ -35,6 +53,8 @@ jobs:
             web/package-lock.json
       - run: npm ci
         working-directory: api
+      - name: Verify release workflow policy
+        run: node --test deploy/ci/policy.test.mjs
       - run: npm test
         working-directory: api
       - name: PostgreSQL and mocked DeepSeek integration
@@ -91,7 +111,7 @@ jobs:
         working-directory: web
   publish:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: test
+    needs: [test, secrets]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -101,6 +121,8 @@ jobs:
         component: [api, web]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:

@@ -1,0 +1,7 @@
+FROM sugar-privilege-api
+ENV NODE_PATH=/app/node_modules
+WORKDIR /checks
+COPY api/package.json ./api/package.json
+COPY deploy/ci ./deploy/ci
+COPY .github/workflows ./.github/workflows
+CMD ["node", "--test", "deploy/ci/policy.test.mjs"]

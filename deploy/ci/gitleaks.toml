@@ -1,0 +1,11 @@
+title = "Sugar - default secret detection, without blanket test exclusions"
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Documented synthetic encryption key in CI/recovery fixtures only"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^\.github/workflows/deploy\.yml$''', '''^deploy/backup/test_backup\.py$''']
+regexTarget = "secret"
+regexes = ['''^(0123456789abcdef){1,4}$''']
