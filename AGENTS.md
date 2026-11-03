@@ -11,6 +11,7 @@
 
 Use Node.js 22 and run `npm ci` separately in `api/` and `web/`.
 
+- Before first boot/after schema changes: `docker compose up -d --wait db`, then `docker compose --profile maintenance run --build --rm migrate` with configured runtime password.
 - `docker compose up --build -d`: rebuild and run the local stack at `http://localhost:8088`, preserving database volumes. Checkout changes alone do not update running containers.
 - `docker compose ps` and `curl -fsS http://localhost:8088/api/health`: verify local health.
 - `cd api && npm start`: start the API with configured PostgreSQL.

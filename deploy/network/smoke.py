@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 project = 'sugar-nettest-' + uuid.uuid4().hex[:10]
 # Rendering must never load the real .env or inherit credentials.
 env = {key: os.environ[key] for key in ['PATH', 'HOME', 'DOCKER_HOST', 'DOCKER_CONTEXT', 'XDG_RUNTIME_DIR'] if key in os.environ}
-env.update(DB_PASSWORD='isolated-network-password', ADMIN_PASSWORD='isolated-network-password', AI_ENCRYPTION_KEY='a' * 64, IMAGE_TAG='0' * 40)
+env.update(RUNTIME_DB_PASSWORD='b' * 64, DB_PASSWORD='isolated-network-password', ADMIN_PASSWORD='isolated-network-password', AI_ENCRYPTION_KEY='a' * 64, IMAGE_TAG='0' * 40)
 
 
 def run(args, **kwargs):

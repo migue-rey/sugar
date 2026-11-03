@@ -1,0 +1,6 @@
+# Only for rollback to an image that predates the separate migration command.
+# Restores that previously deployed image's original DB authority, never new code.
+services:
+  api:
+    environment:
+      DATABASE_URL: postgres://designer:${DB_PASSWORD:?Set DB_PASSWORD}@db:5432/hardware_designer

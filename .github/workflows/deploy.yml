@@ -65,13 +65,16 @@ jobs:
           AUTH_GLOBAL_LIMIT: '10000'
           AUTH_CREDENTIAL_LIMIT: '1000'
           AUTH_HASH_CONCURRENCY: '32'
+          RUNTIME_DB_PASSWORD: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
           AI_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
         run: |
           set -euo pipefail
           node --input-type=module -e "import pg from 'pg'; const c=new pg.Client({connectionString:process.env.DATABASE_URL}); await c.connect(); await c.query('CREATE DATABASE sugar_icons'); await c.end()"
-          ADMIN_PASSWORD=local-ai-verification-password PORT=3001 node --import ./test-support/deepseek-mock.mjs src/server.js > /tmp/sugar-ai.log 2>&1 &
+          ADMIN_PASSWORD=local-ai-verification-password node src/migrate.js
+          DATABASE_URL=postgres://designer:ci-password@127.0.0.1:5432/sugar_icons ADMIN_PASSWORD=local-icons-verification-password node src/migrate.js
+          DATABASE_URL=postgres://sugar_runtime:${RUNTIME_DB_PASSWORD}@127.0.0.1:5432/sugar_ai PORT=3001 node --import ./test-support/deepseek-mock.mjs src/server.js > /tmp/sugar-ai.log 2>&1 &
           ai_pid=$!
-          DATABASE_URL=postgres://designer:ci-password@127.0.0.1:5432/sugar_icons ADMIN_PASSWORD=local-icons-verification-password PORT=3002 node src/server.js > /tmp/sugar-icons.log 2>&1 &
+          DATABASE_URL=postgres://sugar_runtime:${RUNTIME_DB_PASSWORD}@127.0.0.1:5432/sugar_icons PORT=3002 node src/server.js > /tmp/sugar-icons.log 2>&1 &
           icons_pid=$!
           trap 'kill "$ai_pid" "$icons_pid" 2>/dev/null || true' EXIT
           for port in 3001 3002; do

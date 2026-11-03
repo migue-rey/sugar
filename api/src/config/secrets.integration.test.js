@@ -13,11 +13,16 @@ test('server starts with private file secrets before DB construction, without lo
   await pool.query(`CREATE SCHEMA ${schema}`)
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'sugar-start-')),password='private-bootstrap-fixture-password',email='file-bootstrap@local',jwt='isolated-jwt-key-at-least-thirty-two-bytes',key='a'.repeat(64)
   const connection=new URL(databaseUrl);connection.searchParams.set('options','-c search_path='+schema)
-  const env={...process.env,ADMIN_EMAIL:email,PORT:'0'}
+  const env={...process.env,ADMIN_EMAIL:email,PORT:'0',RUNTIME_DB_PASSWORD:process.env.RUNTIME_DB_PASSWORD||'b'.repeat(64)}
   const secrets={DATABASE_URL:connection.href,ADMIN_PASSWORD:password,JWT_SECRET:jwt,AI_ENCRYPTION_KEY:key}
   for(const name of ['DATABASE_URL','ADMIN_PASSWORD','JWT_SECRET','AI_ENCRYPTION_KEY','GITHUB_PRIVATE_KEY','GITHUB_APP_ID','GITHUB_INSTALLATION_ID']){delete env[name];delete env[name+'_FILE']}
   for(const [name,value]of Object.entries(secrets)){const file=path.join(dir,name.toLowerCase());fs.writeFileSync(file,value+'\n',{mode:0o600});env[name+'_FILE']=file}
   let output='',port
+  const migration=spawn(process.execPath,['src/migrate.js'],{cwd:new URL('../..',import.meta.url),env,stdio:['ignore','pipe','pipe']})
+  migration.stdout.on('data',data=>{output+=data});migration.stderr.on('data',data=>{output+=data})
+  assert.equal(await new Promise(resolve=>migration.once('exit',resolve)),0,'Explicit migration must complete')
+  connection.username='sugar_runtime';connection.password=env.RUNTIME_DB_PASSWORD
+  fs.writeFileSync(env.DATABASE_URL_FILE,connection.href+'\n',{mode:0o600})
   const child=spawn(process.execPath,['src/server.js'],{cwd:new URL('../..',import.meta.url),env,stdio:['ignore','pipe','pipe']})
   let exited=false;child.once('exit',()=>{exited=true})
   child.stdout.on('data',data=>{output+=data;const match=output.match(/API ready (\d+)/);if(match)port=Number(match[1])})

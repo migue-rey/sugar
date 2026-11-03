@@ -19,7 +19,7 @@ def run(args, **kwargs):
 def main(preview=False):
     project = 'sugar-privilege-test-' + uuid.uuid4().hex[:10]
     env = {key: os.environ[key] for key in ['PATH', 'HOME', 'DOCKER_HOST', 'DOCKER_CONTEXT', 'XDG_RUNTIME_DIR'] if key in os.environ}
-    env.update(DB_PASSWORD='synthetic-container-password', ADMIN_EMAIL='admin@example.invalid',
+    env.update(RUNTIME_DB_PASSWORD='b' * 64, DB_PASSWORD='synthetic-container-password', ADMIN_EMAIL='admin@example.invalid',
                ADMIN_PASSWORD='isolated-container-password', AI_ENCRYPTION_KEY='a' * 64,
                JWT_SECRET='synthetic-container-secret-at-least-thirty-two-bytes', IMAGE_TAG='0' * 40)
     configs = []
@@ -29,6 +29,13 @@ def main(preview=False):
         assert not validate(config), 'API container policy failed: ' + file
         configs.append(config)
     config = configs[1]
+    rollback_config = json.loads(run(['docker', 'compose', '--env-file', '/dev/null', '-p', project, '-f', str(ROOT / 'deploy/compose.yaml'), '-f', str(ROOT / 'deploy/legacy-rollback.yaml'), 'config', '--format', 'json'], env=env))
+    assert 'postgres://designer:' in rollback_config['services']['api']['environment']['DATABASE_URL']
+    assert 'postgres://sugar_runtime:' in config['services']['api']['environment']['DATABASE_URL']
+    assert not config['services']['api']['environment'].get('ADMIN_PASSWORD')
+    maintenance = json.loads(run(['docker', 'compose', '--env-file', '/dev/null', '--profile', 'maintenance', '-p', project, '-f', str(ROOT / 'deploy/compose.yaml'), 'config', '--format', 'json'], env=env))
+    config['services']['migrate'] = maintenance['services']['migrate']
+    config['services']['migrate']['image'] = 'sugar-privilege-api-check'
     services = config['services']
     services['api']['image'] = 'sugar-privilege-api-check'
     services['web']['image'] = 'sugar-privilege-web'
@@ -46,6 +53,11 @@ def main(preview=False):
         file.write_text(json.dumps(config))
         base = ['docker', 'compose', '-p', project, '-f', str(file)]
         try:
+            run(base + ['up', '-d', '--wait', 'db'], env=env)
+            legacy = run(base + ['--profile', 'maintenance', 'run', '--rm', '--no-deps', 'migrate', 'node', '/checks/legacy-check.mjs', 'seed'], env=env).split('LEGACY_DIGEST=')[-1].strip()
+            run(base + ['--profile', 'maintenance', 'run', '--rm', '--no-deps', 'migrate'], env=env)
+            rollback = run(base + ['--profile', 'maintenance', 'run', '--rm', '--no-deps', 'migrate', 'node', '/checks/legacy-check.mjs', 'rollback'], env=env).split('LEGACY_DIGEST=')[-1].strip()
+            assert legacy == rollback, 'Existing data changed during migration/legacy restart'
             run(base + ['up', '-d', '--wait', '--wait-timeout', '120'], env=env)
             identifier = run(base + ['ps', '-q', 'api'], env=env).strip()
             metadata = json.loads(run(['docker', 'inspect', identifier]))[0]

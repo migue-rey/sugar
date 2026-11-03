@@ -18,7 +18,7 @@ Comprueba UID/GID de Node/init, capacidades efectivas nulas, prohibición de nue
 
 ## Compatibilidad y liberación
 
-- Este cambio no altera esquema, roles, propietarios PostgreSQL, volúmenes ni contenido. **La API aún conecta con el rol de base de datos existente y ejecuta inicializaciones al arrancar.** El aislamiento de credenciales/migraciones sigue pendiente; no se da #12 por completado.
+- Este cambio no altera esquema, roles, propietarios PostgreSQL, volúmenes ni contenido. La API usa ahora `sugar_runtime` y verifica el esquema sin migrarlo. El perfil maintenance usa la identidad separada para migraciones; ver [transición y reversión](../database/README.md).
 - La API necesita puerto 3000, sin capacidades para puertos privilegiados. No requiere directorios persistentes propios. No montar el socket Docker ni agregar capacidades para resolver errores.
 - Si se utilizan secretos `_FILE`, el UID 1000 debe poder abrirlos. Preparar archivos dedicados con propietario/UID correcto y modo 0400/0600, montados en solo lectura; no hacerlos públicos con 0644 ni cambiar indiscriminadamente propietarios del directorio del despliegue. Las instalaciones actuales por variables de entorno no requieren conversión. El ensayo valida un secreto privado creado por el mismo UID; los montajes reales requieren comprobación durante una liberación autorizada.
 - No se restringen todavía los contenedores web/PostgreSQL: sus entrypoints y rutas escribibles requieren evaluación independiente. No aplicar `read_only` o `cap_drop: ALL` a PostgreSQL a ciegas; necesita inicializar/escribir su volumen.
@@ -26,8 +26,8 @@ Comprueba UID/GID de Node/init, capacidades efectivas nulas, prohibición de nue
 
 Antes de liberar: conservar copia verificada de Compose/release y backup recuperable según [seguridad](../security/README.md) y [backups](../backup/README.md), revisar montajes `_FILE`, recrear solo API con la imagen probada y verificar salud/flujos. No ejecutar `down -v`, cambiar roles ni borrar datos. El rollback de imágenes no revierte Compose automáticamente: restaurar explícitamente el archivo previo y la imagen anterior, recreando solo API y comprobando salud. La memoria temporal se pierde al recrear; los datos permanecen en PostgreSQL. Nada de esto se ha aplicado a instalaciones existentes.
 
-## Etapa 2 pendiente
+## Etapa 2 — separación de PostgreSQL
 
-Separar un rol de migración/propietario del rol de ejecución sin DDL/superusuario, proporcionar un comando/job explícito de migración, permisos/default privileges acotados, transición de bases existentes y reversión conservadora. Probar arranque y todos los flujos con el rol restringido. Evaluar después los demás servicios y ajustar límites con carga medida antes de escalar.
+Implementada con rol de ejecución sin DDL/superusuario, comando separado, permisos/default privileges acotados y comprobación de datos heredados/reversión de arranque. Ver [procedimiento](../database/README.md). Evaluar después los demás servicios y ajustar límites con carga medida antes de escalar.
 
 Fuentes: [Node Docker: usuario no root](https://github.com/nodejs/docker-node/blob/main/docs/BestPractices.md#non-root-user), [opciones de servicios Compose](https://docs.docker.com/reference/compose-file/services/).

@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import { q, pool } from '/app/src/db.js'
 import { syncOne } from '/app/src/github.js'
 import { loadSecretFiles } from '/app/src/config/secrets.js'
+import { verifyRuntime } from '/app/src/database/access.js'
 
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6X6sAAAAASUVORK5CYII='
 let cookie
@@ -26,6 +27,14 @@ async function request(path, body, method = body ? 'POST' : 'GET', expected = 20
 }
 
 try {
+  await verifyRuntime(q)
+  assert.equal((await q('SELECT current_user')).rows[0].current_user, 'sugar_runtime')
+  for (const sql of ['CREATE TABLE forbidden_table(id int)', 'CREATE ROLE forbidden_role', 'SET ROLE designer', 'DROP TABLE users', 'TRUNCATE users', 'CREATE TEMP TABLE forbidden_temp(id int)']) {
+    await assert.rejects(q(sql), { code: '42501' })
+  }
+  assert.equal(process.env.ADMIN_PASSWORD, undefined)
+  await q("INSERT INTO future_privilege_fixture(value) VALUES('runtime default grants')")
+  assert((await q('SELECT * FROM future_privilege_fixture')).rows.length > 0)
   assert.equal(process.getuid(), 1000)
   assert.equal(process.getgid(), 1000)
   for (const path of ['/proc/self/status', '/proc/1/status']) {

@@ -46,7 +46,7 @@ El [creador cifrado y ensayo de recuperación](backup/README.md) prepara archivo
 
 ### API sin root (#12, etapa 1)
 
-La API usa UID/GID 1000, raíz de solo lectura, tmpfs acotado y restricciones de capacidades/procesos en ambos Compose. Ver [ensayo, compatibilidad de secretos y reversión](containers/README.md). El usuario de PostgreSQL y las migraciones al arrancar todavía no cambian: su separación es la siguiente etapa. Esta configuración no se aplicó a producción ni a la instalación local existente.
+La API usa UID/GID 1000, raíz de solo lectura, tmpfs acotado y restricciones de capacidades/procesos en ambos Compose. Ver [ensayo, compatibilidad de secretos y reversión](containers/README.md). El rol PostgreSQL y las migraciones ya se separan; consultar [configuración y transición](database/README.md) antes de liberar. Esta configuración no se aplicó a producción ni a la instalación local existente.
 
 ### Cabeceras y origen (#13)
 
