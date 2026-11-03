@@ -95,7 +95,13 @@ async function fixture(t, provider) {
     if (sql.includes('LIMIT 21')) return { rows: analyses.filter(a=>a.project_id===args[0]).slice(args[1],args[1]+21).map(({response,snapshot,...a})=>a) }
     throw new Error('unexpected query ' + sql)
   }
-  registerAi(app, { q, requireAdmin: req => { if(req.user.role !== 'Admin') denied() }, requireEdit: req => { if(!['Admin','dev'].includes(req.user.role)) denied() }, requireProject: async req => { const p = projects.find(p=>p.id===req.params.id); if(!p || (req.user.role!=='Admin' && req.user.id!==p.owner)) denied(); return p }, callProvider: async (...args) => { calls++; return provider ? provider(...args) : { response: '<script>never execute</script>\nSummary', usage: { total_tokens: 20 } } } })
+  const active = new Set(), pending = new Map()
+  const quota = {
+    reserve: async user => { if (active.has(user)) throw Object.assign(Error('aiInProgress'), { status: 409 }); active.add(user); const id = crypto.randomUUID(); pending.set(id, user); return { id } },
+    settle: async (id, usage, save = async () => null) => { const value = await save(q); active.delete(pending.get(id)); return value },
+    abandon: async id => active.delete(pending.get(id)),
+  }
+  registerAi(app, { q, quota, requireAdmin: req => { if(req.user.role !== 'Admin') denied() }, requireEdit: req => { if(!['Admin','dev'].includes(req.user.role)) denied() }, requireProject: async req => { const p = projects.find(p=>p.id===req.params.id); if(!p || (req.user.role!=='Admin' && req.user.id!==p.owner)) denied(); return p }, callProvider: async (...args) => { calls++; return provider ? provider(...args) : { response: '<script>never execute</script>\nSummary', usage: { total_tokens: 20 } } } })
   app.use((err,_req,res,_next)=>res.status(err.status||500).json({error:err.message}))
   const server = app.listen(0,'127.0.0.1'); await new Promise(resolve=>server.once('listening',resolve))
   t.after(()=>new Promise(resolve=>{ server.close(resolve); server.closeAllConnections() }))

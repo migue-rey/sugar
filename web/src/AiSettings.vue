@@ -10,7 +10,7 @@ async function run(fn: () => Promise<void>) { busy.value = true; error.value = '
 function accept(c: AiConfig) { config.value = c; saved.value = JSON.stringify(c); token.value = ''; loaded.value = true }
 onMounted(() => run(async () => accept(await aiApi('/ai'))))
 async function save(removeToken = false) { await run(async () => { accept(await aiApi('/ai', 'PUT', { provider: config.value.provider, model: config.value.model, enabled: removeToken ? false : config.value.enabled, token: removeToken ? '' : token.value, removeToken })); message.value = t('aiSave') + ' ✓' }) }
-async function test() { await run(async () => { await aiApi('/ai/test', 'POST'); message.value = t('aiTestOk') }) }
+async function test() { await run(async () => { await aiApi('/ai/test', 'POST', { requestId: crypto.randomUUID() }); message.value = t('aiTestOk') }) }
 </script>
 <template>
   <section class="content-card ai-settings">

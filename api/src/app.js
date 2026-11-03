@@ -22,6 +22,7 @@ import { registerCategoryRoutes } from './categories/routes.js'
 import { projectCategoryIcons, validateCategory } from './categories.js'
 import { replaceEmbeddedImages } from './images.js'
 import { registerDocumentRoutes } from './documents.js'
+import { createAiQuotas } from './ai/quotas.js'
 import { registerAi } from './ai.js'
 import { createProjectSyncService } from './github.js'
 import { registerSyncRoutes } from './github/routes.js'
@@ -67,7 +68,7 @@ export function createApp({ q, transaction, secret, enqueue, syncOne, callProvid
   registerSyncRoutes(app, sync)
   // Preserve the established AI module and its request-based policy interface.
   registerAi(app, {
-    q, callProvider,
+    q, callProvider, quota: createAiQuotas({ q, transaction }),
     requireAdmin: req => requireAdmin(req.user),
     requireEdit: req => requireEdit(req.user),
     requireProject: (req, edit = false, ownerOnly = false) => projects.get(req.params.id, req.user, { edit, ownerOnly }),

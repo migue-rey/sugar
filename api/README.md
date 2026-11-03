@@ -91,6 +91,22 @@ Login, cambio de contraseña y creación de cuentas tienen un cuerpo JSON máxim
 
 Sin configuración de proxies, el límite por IP agrupa los clientes del proxy: es conservador frente a abuso, pero puede limitar usuarios legítimos juntos. Aplicar la plantilla Nginx frontal y configurar `TRUSTED_PROXIES` son tareas de la liberación autorizada; esta rama no cambia la VPS. Registro y recuperación futuros (#16/#17) deben usar límites equivalentes antes de consultar cuentas, enviar correo o calcular hashes, manteniendo respuestas genéricas. La protección de gasto de IA se trata en #8.
 
+## Presupuestos y reservas de IA
+
+`ai/quotas.js` guarda configuración y un libro de llamadas en PostgreSQL. Las reservas usan una transacción y un advisory lock común: dos procesos no pueden consumir simultáneamente el último cupo, ejecutar dos consultas de un usuario o facturar dos veces el mismo `requestId`. El bloqueo se libera antes de consultar al proveedor. El resultado y su cargo definitivo se confirman en una sola transacción con el análisis. Si falla el almacén no se llama al proveedor.
+
+Admin configura `GET/PUT /api/ai/quotas`. El PUT requiere `expectedVersion` y todos los límites; un cambio concurrente devuelve 409. Valores iniciales: periodo de 24 horas, 100 solicitudes/1.000.000 tokens por cuenta, 1.000 solicitudes/10.000.000 tokens en la plataforma y cuatro consultas simultáneas globales. Cada usuario conserva su contador independiente y como máximo una consulta activa. Un presupuesto cero impide nuevas llamadas. El periodo admite 1–744 horas; son ventanas fijas alineadas al epoch UTC, no meses de calendario. Cambiarlo cuenta las llamadas existentes que caen en la nueva ventana, sin borrar consumo.
+
+`GET /api/ai/usage` devuelve límites, consumo/reservas de la cuenta actual y totales agregados de la plataforma, junto con `resetsAt`. No publica usuarios ajenos, credenciales ni saldos del proveedor. La pestaña IA muestra el disponible y la fecha local de renovación; Configuración permite a Admin ajustar los presupuestos. Se responde 429 con `Retry-After` cuando no alcanza el cupo; no hay reintento automático.
+
+Antes de cada análisis se reserva una estimación conservadora: bytes UTF-8 de los mensajes serializados + 4.096 de margen + 4.000 de salida máxima (16 para probar conexión). El proveedor sigue limitado a 4.000 tokens de salida, contexto de 200 KiB y 120 segundos. Una respuesta exitosa con consumo total entero y válido sustituye la reserva por ese consumo; si no informa consumo se conserva la reserva. Si el proveedor informa más de lo reservado se contabiliza todo y se bloquean nuevas llamadas cuando corresponda. Estos son **presupuestos de tokens y solicitudes, no límites monetarios ni el saldo de DeepSeek**: no se consultan precios ni se estima dinero.
+
+Fallos, timeouts o resultados inciertos conservan su reserva y cuentan como una solicitud, aunque no se guarde análisis. El mismo ID no se vuelve a ejecutar; repetirlo devuelve conflicto o el resultado ya guardado. Un trabajador perdido libera su cupo de concurrencia tras cinco minutos, marcándolo incierto y conservando el cargo. No se reintenta esa identidad. Revisar historial antes de decidir una nueva solicitud. Cambiar límites no cancela llamadas ya iniciadas.
+
+Las pruebas de conexión están sujetas a los mismos presupuestos y concurrencia. `POST /api/ai/test` requiere ahora `{ requestId: UUID }`; la interfaz ya lo envía. Repetir ese ID conserva la operación original; cambiar token/modelo con el mismo ID devuelve conflicto. Clientes externos antiguos deben añadir un ID por operación para proteger las pruebas facturables. Los análisis continúan usando su ID existente.
+
+Al inicializar se incorporan análisis heredados al libro sin modificar sus snapshots/respuestas: se usa su consumo informado o una reserva conservadora de 212.896 tokens si no existe. Esto puede dejar agotado un presupuesto en la primera ventana después de actualizar. Las pruebas de conexión antiguas no tenían historial y no se reconstruye un consumo desconocido. La configuración global del proveedor y los tokens cifrados se conservan. Al liberar, reemplazar todas las réplicas antiguas: las versiones previas no conocen las cuotas. No se ha contactado a DeepSeek para validar esta entrega; las pruebas usan únicamente proveedores simulados y bases desechables.
+
 ## Límites transaccionales
 
 - Crear proyecto: proyecto + revisión inicial.

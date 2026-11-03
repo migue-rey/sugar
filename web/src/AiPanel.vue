@@ -6,6 +6,9 @@ const props = defineProps<{ projectId: string; revision: number; snapshot: Diagr
 const emit = defineEmits<{ select: [id: string] }>()
 const t = (key: string) => (aiMessages[props.language] as Record<string,string>)[key] || key
 const focus = ref(''), busy = ref(false), loading = ref(false), error = ref(''), available = ref(false), ready = ref(false)
+const budget = ref<any>(null)
+const remaining = (scope: 'user' | 'platform', kind: 'requests' | 'tokens') => budget.value ? Math.max(0, budget.value.limits[(scope === 'user' ? 'user' : 'global') + (kind === 'requests' ? 'Requests' : 'Tokens')] - budget.value[scope][kind]) : 0
+async function quota() { if (props.editable) budget.value = await aiApi('/ai/usage') }
 const items = ref<Analysis[]>([]), current = ref<Analysis | null>(null), nextOffset = ref<number | null>(null)
 const stale = computed(() => current.value?.snapshot && (props.yamlDirty || stableSnapshot(current.value.snapshot) !== stableSnapshot(props.snapshot)))
 const base = '/projects/' + props.projectId + '/analyses'
@@ -15,15 +18,15 @@ async function history(append = false) {
   try { const data = await aiApi(base + '?offset=' + (append ? nextOffset.value || 0 : 0)); items.value = append ? [...items.value, ...data.items] : data.items; nextOffset.value = data.nextOffset }
   finally { loading.value = false }
 }
-async function refresh() { error.value = ''; try { await history() } catch(e) { showError(e) } }
+async function refresh() { error.value = ''; try { await history(); await quota() } catch(e) { showError(e) } }
 async function select(id: string) { error.value = ''; loading.value = true; try { current.value = await aiApi(base + '/' + id) } catch(e) { showError(e) } finally { loading.value = false } }
-onMounted(async () => { try { available.value = (await aiApi('/ai/status')).available; ready.value = true; await history() } catch(e) { showError(e) } })
+onMounted(async () => { try { available.value = (await aiApi('/ai/status')).available; ready.value = true; await quota(); await history() } catch(e) { showError(e) } })
 async function execute(action: 'analyze' | 'recommend') {
   if (busy.value || props.yamlDirty || !props.editable) return
   busy.value = true; error.value = ''
   const snapshot = JSON.parse(JSON.stringify(props.snapshot))
   try { const data = await aiApi(base, 'POST', { snapshot, action, focus: focus.value, language: props.language, baseRevision: props.revision, requestId: crypto.randomUUID() }); current.value = await aiApi(base + '/' + data.id); await history() }
-  catch(e) { showError(e) } finally { busy.value = false }
+  catch(e) { showError(e) } finally { try { await quota() } catch {} busy.value = false }
 }
 async function more() { try { await history(true) } catch(e) { showError(e) } }
 </script>
@@ -32,6 +35,7 @@ async function more() { try { await history(true) } catch(e) { showError(e) } }
     <h2>{{ t('aiReview') }}</h2>
     <template v-if="editable">
       <p class="hint">{{ t('aiDisclosure') }}</p>
+      <div v-if="budget" class="hint" aria-live="polite"><strong>{{ t('aiQuotaTitle') }}</strong><p>{{ t('aiOwnRemaining') }}: {{ remaining('user','requests') }} {{ t('aiRequests') }} · {{ remaining('user','tokens') }} {{ t('aiTokens') }}</p><p>{{ t('aiPlatformRemaining') }}: {{ remaining('platform','requests') }} {{ t('aiRequests') }} · {{ remaining('platform','tokens') }} {{ t('aiTokens') }}</p><p>{{ t('aiQuotaReset') }}: {{ new Date(budget.resetsAt).toLocaleString(language) }}</p><p>{{ t('aiQuotaHint') }}</p></div>
       <p v-if="ready && !available" class="message error">{{ t('aiUnavailable') }}</p>
       <label>{{ t('aiFocus') }}<textarea v-model="focus" maxlength="2000" rows="3" :placeholder="t('aiFocusHint')" :disabled="busy"></textarea></label>
       <p class="hint">{{ focus.length }}/2000 · {{ t('aiSnapshotHint') }}</p>

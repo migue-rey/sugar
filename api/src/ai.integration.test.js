@@ -19,7 +19,7 @@ test('AI integration with real authentication and PostgreSQL (isolated mock serv
     assert.equal((await request('/ai')).status,401)
     const c=await request('/ai',{cookie:admin,method:'PUT',body:{provider:'deepseek',model:'deepseek-flash',enabled:true,token:'isolated-mock-token'}})
     assert.equal(c.status,200);assert.equal(c.body.tokenConfigured,true);assert.equal('token' in c.body,false)
-    assert.equal((await request('/ai/test',{method:'POST',cookie:admin})).status,200)
+    assert.equal((await request('/ai/test',{method:'POST',cookie:admin,body:{requestId:crypto.randomUUID()}})).status,200)
     const preserved=await request('/ai',{cookie:admin,method:'PUT',body:{provider:'deepseek',model:'deepseek-flash',enabled:true,token:''}})
     assert.equal(preserved.body.tokenConfigured,true)
     for(const [email,role] of [['dev@local','dev'],['view@local','view'],['outsider@local','dev']]) {
