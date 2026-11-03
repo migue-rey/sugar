@@ -2,6 +2,7 @@ name: sugar
 services:
   db:
     image: postgres:17-alpine
+    networks: [database]
     environment:
       POSTGRES_DB: hardware_designer
       POSTGRES_USER: designer
@@ -21,6 +22,7 @@ services:
         max-file: '3'
     restart: unless-stopped
   api:
+    networks: [application, database, egress]
     image: ghcr.io/picli3/sugar-api:${IMAGE_TAG:?Set IMAGE_TAG to a commit SHA}
     environment:
       DATABASE_URL: postgres://designer:${DB_PASSWORD}@db:5432/hardware_designer
@@ -58,6 +60,7 @@ services:
         max-file: '3'
     restart: unless-stopped
   web:
+    networks: [front, application]
     image: ghcr.io/picli3/sugar-web:${IMAGE_TAG:?Set IMAGE_TAG}
     ports:
       - 127.0.0.1:18088:80
@@ -78,3 +81,12 @@ services:
     restart: unless-stopped
 volumes:
   postgres_data:
+
+# No shared external networks or fixed subnets: avoid other applications and collisions.
+networks:
+  front: {}
+  application:
+    internal: true
+  database:
+    internal: true
+  egress: {}

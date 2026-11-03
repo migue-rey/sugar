@@ -35,3 +35,7 @@ Antes de liberar, identificar los proxies que conectan con Express y configurar 
 ### Preparación de acceso administrativo (#9)
 
 El [runbook de seguridad](security/README.md) incluye acceso alternativo, recuperación, rotación, SSH por claves, CI con sudo acotado, permisos y reversión. Su política y el sudoers son plantillas: no se aplican automáticamente ni se cambian accesos actuales. El despliegue nuevo requiere instalar también `security/check-files.py`, proteger su directorio y pasar la auditoría antes de usar Docker. El alta inicial ya no genera/imprime contraseñas; una base vacía requiere ADMIN_PASSWORD explícita. No restablece usuarios existentes. Las comprobaciones del servidor real y cualquier rotación quedan pendientes de una orden de producción.
+
+### Política de red (#10)
+
+Producción usa redes separadas: front para web; application interna para web/API; database interna solo para API/PostgreSQL; egress para las llamadas salientes de API. Solo web publica `127.0.0.1:18088`. El volumen PostgreSQL conserva su nombre. Ver [inventario, matriz de conexiones y reversión](network/README.md) antes de aplicar cambios. El rollback automático de imágenes no restaura una configuración de red previa. No se ha aplicado ni validado esta política en la VPS real.

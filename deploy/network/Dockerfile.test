@@ -1,0 +1,3 @@
+FROM node:22-alpine
+COPY deploy/network/probe.mjs /probe.mjs
+ENTRYPOINT ["node", "/probe.mjs"]

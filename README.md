@@ -10,7 +10,7 @@ From this directory, run:
 docker compose up --build -d
 ```
 
-Open [http://localhost:8088](http://localhost:8088). Before first boot, create a private `.env` (mode `600`) and set `ADMIN_PASSWORD` explicitly (at least 12 characters, at most 72 UTF-8 bytes). The first boot creates `admin@local` or your configured `ADMIN_EMAIL`; it never prints the password. Existing accounts are not changed by bootstrap settings. `.env.example` lists all options. Set `APP_PORT` if port 8088 is occupied.
+Open [http://localhost:8088](http://localhost:8088). Before first boot, create a private `.env` (mode `600`) and set `ADMIN_PASSWORD` explicitly (at least 12 characters, at most 72 UTF-8 bytes). The first boot creates `admin@local` or your configured `ADMIN_EMAIL`; it never prints the password. Existing accounts are not changed by bootstrap settings. `.env.example` lists all options. Set `APP_PORT=127.0.0.1:8089` if port 8088 is occupied. Omitting the IP explicitly (for example `APP_PORT=8089`) publishes on all interfaces; use that only for deliberate LAN access. Production uses `deploy/compose.yaml` and its separate network policy.
 
 The same Compose file starts the web frontend, API and PostgreSQL. Data is kept in the `postgres_data` Docker volume across restarts and rebuilds. Back up that volume before moving or upgrading an installation. For access outside a trusted local network, serve the app through HTTPS and set a strong `DB_PASSWORD` in `.env` before the first boot.
 

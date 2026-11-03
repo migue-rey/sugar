@@ -65,6 +65,12 @@ jobs:
           python3 -m unittest discover -s deploy/security -p 'test_*.py'
           docker build -f deploy/security/Dockerfile.test -t sugar-admin-security-test .
           docker run --rm --network none sugar-admin-security-test
+      - name: Isolated service network policy
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s deploy/network -p 'test_*.py'
+          docker build -f deploy/network/Dockerfile.test -t sugar-network-probe .
+          python3 deploy/network/smoke.py
       - run: npm ci
         working-directory: web
       - run: npm test && npm run build
