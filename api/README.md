@@ -57,3 +57,19 @@ GitHub Actions inicia PostgreSQL desechable, dos bases y dos APIs:
 La suite cubre sesiones/cookies, perfiles, roles, visibilidad privada/pública, enlaces compartidos/revocación, exportaciones y diferencias, actualizaciones concurrentes y conflictos, versiones de bloques, permisos de imágenes/categorías y los análisis IA existentes. Inyecta fallos después de insertar historial/cola para comprobar que PostgreSQL revierte también metadatos, estados de sincronización, enlaces y migraciones de imágenes.
 
 En ramas de desarrollo se puede ejecutar el workflow manualmente con `gh workflow run deploy.yml --ref <rama>`. Ejecutará las pruebas; publicación y despliegue están condicionados a `refs/heads/main`. El despliegue de producción sigue usando el mismo `Dockerfile` y `node src/server.js`.
+
+## Acceso a proyectos
+
+La visibilidad y el permiso de escritura son independientes. Un proyecto público puede leerse sin sesión mediante su URL pública; no concede edición a otras cuentas. El propietario y `Admin` conservan acceso. Los colaboradores explícitos tienen rol `reader` o `editor`; para escribir se requiere además el rol global `dev`/`Admin`. Una cuenta global `view` no puede obtener escritura mediante una membresía.
+
+`project_members` guarda estas concesiones fuera del YAML y de las revisiones. La inicialización crea la tabla e índice sin otorgar acceso nuevo a proyectos existentes. El listado incluye proyectos privados donde la cuenta es colaboradora; al revocar acceso desaparecen si no hay otra autorización.
+
+Solo propietario/administrador gestiona las cuentas existentes desde Configuración del proyecto o mediante:
+
+- `GET /api/projects/:id/members`
+- `PUT /api/projects/:id/members` con `{ email, role: 'reader' | 'editor' }`
+- `DELETE /api/projects/:id/members/:userId`
+
+No se envían invitaciones por correo ni se crean cuentas mediante estas rutas. Los lectores pueden consultar historial/exportar y leer análisis accesibles; crear análisis exige permiso de edición. `GET /api/projects/:id` devuelve `permissions` para que la interfaz muestre controles coherentes, pero el servidor comprueba cada operación.
+
+Guardar/restaurar y modificar accesos se serializan sobre la fila del proyecto. Tras obtener el bloqueo se consulta nuevamente la membresía con una sentencia nueva, evitando usar permisos leídos antes de una revocación concurrente. Las pruebas incluyen este caso y conflictos de revisión con editores autorizados. Administración de biblioteca, imágenes y borrado de recursos mantienen sus reglas actuales; sus cambios se tratan en los demás issues del plan público.

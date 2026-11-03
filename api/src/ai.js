@@ -109,7 +109,7 @@ export function registerAi(app, { q, requireAdmin, requireEdit, requireProject, 
   }))
   app.post('/api/projects/:id/analyses', route(async (req,res) => {
     requireEdit(req)
-    const project = await requireProject(req)
+    const project = await requireProject(req, true)
     const { snapshot, action, focus = '', language = req.user.language, baseRevision, requestId } = req.body
     if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(requestId || '') || !Number.isInteger(baseRevision) || baseRevision < 1 || baseRevision > project.revision) fail(400, 'aiInvalidRequest')
     const messages = analysisMessages(snapshot, action, focus, language), hash = fingerprint(snapshot)

@@ -4,12 +4,26 @@ const join = 'FROM projects p LEFT JOIN users u ON u.id=p.created_by'
 // Every write participating in a transaction receives that transaction's query function.
 export function createProjectRepository(query) {
   return {
-    async find(id) { return (await query(`SELECT ${fields} ${join} WHERE p.id=$1 AND p.deleted_at IS NULL`, [id])).rows[0] },
+    async find(id, userId, execute = query, lock = false) {
+      // Lock first, then read membership with a fresh statement snapshot after any waiter.
+      if (lock) await execute('SELECT id FROM projects WHERE id=$1 AND deleted_at IS NULL FOR UPDATE', [id])
+      return (await execute(`SELECT ${fields},m.role AS member_role ${join} LEFT JOIN project_members m ON m.project_id=p.id AND m.user_id=$2 WHERE p.id=$1 AND p.deleted_at IS NULL`, [id, userId])).rows[0]
+    },
     async public(id) { return (await query(`SELECT ${fields} ${join} WHERE p.id=$1 AND p.visibility='public' AND p.deleted_at IS NULL`, [id])).rows[0] },
     async shared(token) { return (await query(`SELECT ${fields} ${join} WHERE p.share_token=$1 AND p.deleted_at IS NULL`, [token])).rows[0] },
     async list(user) {
-      return (await query(`SELECT p.id,p.name,p.revision,p.created_at,p.visibility,p.created_by,p.sync_repository,p.sync_branch,p.settings_version,u.email AS creator ${join} WHERE p.deleted_at IS NULL AND (p.visibility='public' OR p.created_by=$1 OR $2='Admin') ORDER BY p.name`, [user.id, user.role])).rows
+      return (await query(`SELECT p.id,p.name,p.revision,p.created_at,p.visibility,p.created_by,p.sync_repository,p.sync_branch,p.settings_version,u.email AS creator ${join} LEFT JOIN project_members m ON m.project_id=p.id AND m.user_id=$1 WHERE p.deleted_at IS NULL AND (p.visibility='public' OR p.created_by=$1 OR $2='Admin' OR m.user_id IS NOT NULL) ORDER BY p.name`, [user.id, user.role])).rows
     },
+    async members(id) {
+      return (await query('SELECT m.user_id,u.email,m.role,u.active FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=$1 ORDER BY u.email', [id])).rows
+    },
+    async memberAccount(email, tx) {
+      return (await tx('SELECT id,email,role,active FROM users WHERE email=$1 AND active=true FOR SHARE', [email])).rows[0]
+    },
+    async setMember(id, userId, role, tx) {
+      await tx('INSERT INTO project_members(project_id,user_id,role) VALUES($1,$2,$3) ON CONFLICT(project_id,user_id) DO UPDATE SET role=excluded.role', [id, userId, role])
+    },
+    async removeMember(id, userId, tx) { await tx('DELETE FROM project_members WHERE project_id=$1 AND user_id=$2', [id, userId]) },
     async create(id, name, yaml, authorId, tx) {
       await tx('INSERT INTO projects(id,name,revision,yaml,created_by) VALUES($1,$2,1,$3,$4)', [id, name, yaml, authorId])
     },
