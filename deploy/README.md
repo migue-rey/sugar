@@ -1,14 +1,14 @@
 # Sugar en producción
 
-GitHub Actions (`.github/workflows/deploy.yml`) ejecuta pruebas unitarias, integración con PostgreSQL y DeepSeek simulado, y la compilación Vue. Solo `main` publica `ghcr.io/picli3/sugar-api:<commit>` y `ghcr.io/picli3/sugar-web:<commit>`, y despliega ese mismo commit. Los pull requests solo ejecutan pruebas.
+GitHub Actions (`.github/workflows/deploy.yml`) ejecuta pruebas unitarias, integración con PostgreSQL y DeepSeek simulado, y la compilación Vue. Solo `main` publica `ghcr.io/picli3/sugar-api:<commit>`,  `ghcr.io/picli3/sugar-web:<commit>` y `ghcr.io/picli3/sugar-database:<commit>`, y despliega ese mismo commit. Los pull requests solo ejecutan pruebas.
 
 La VPS mantiene `/srv/sugar/compose.yaml`, `deploy.sh`, `ssh-gateway.sh`, `.env`, `release.env` y `backups/`. Nginx publica `https://sugar.maykolrey.com` y reenvía a `127.0.0.1:18088`; PostgreSQL y Express no publican puertos. Certbot administra HTTPS. La cookie de sesión lleva `Secure` en producción.
 
 ## Configuración inicial
 
 1. Crear el registro DNS A `sugar` apuntando a la VPS.
-2. Instalar compose.yaml, deploy.sh, ssh-gateway.sh y security/check-files.py de esta carpeta en `/srv/sugar`, propiedad de root. Crear `.env` con permisos `600`: `DB_PASSWORD` y `AI_ENCRYPTION_KEY` son obligatorios; `ADMIN_PASSWORD` es necesaria solo al inicializar una base vacía y puede retirarse del arranque después. Conservar esta última clave con las copias de seguridad para recuperar los tokens cifrados. No subir `.env`, claves privadas ni volcados al repositorio.
-3. Crear una clave SSH dedicada. En `authorized_keys`, restringirla con `restrict,command="/srv/sugar/ssh-gateway.sh"`. Solo acepta `deploy <SHA de 40 caracteres>`; no permite terminal, túneles ni comandos arbitrarios. Cambios en los scripts de infraestructura requieren instalación por un administrador.
+2. Instalar compose.yaml, deploy.sh, ssh-gateway.sh y security/check-files.py de esta carpeta en `/srv/sugar`, propiedad de root. Crear `.env` con permisos `600`: `DB_PASSWORD`, `RUNTIME_DB_PASSWORD` (64 hex) y `AI_ENCRYPTION_KEY` son obligatorios; `ADMIN_PASSWORD` es necesaria solo al inicializar una base vacía y puede retirarse del arranque después. Conservar esta última clave con las copias de seguridad para recuperar los tokens cifrados. No subir `.env`, claves privadas ni volcados al repositorio.
+3. Crear una clave SSH dedicada. En `authorized_keys`, restringirla con `restrict,command="/srv/sugar/ssh-gateway.sh"`. Solo acepta `deploy-v2 <SHA de 40 caracteres>`; no permite terminal, túneles ni comandos arbitrarios. Cambios en los scripts de infraestructura requieren instalación por un administrador.
 4. Configurar en GitHub los secretos `VPS_SSH_KEY` y `VPS_KNOWN_HOSTS`, y las variables `VPS_HOST` y `VPS_USER`. La huella SSH se obtiene a través de una conexión administrativa ya verificada.
 5. Instalar `nginx.conf`, validar con `nginx -t` y recargar Nginx. Tras propagarse DNS, ejecutar `certbot --nginx -d sugar.maykolrey.com --redirect`.
 
@@ -20,7 +20,7 @@ La primera instalación puede restaurar una copia consistente de la base local a
 
 Antes de cada actualización se crea un `pg_dump` en `backups/`. El despliegue espera los health checks y solo actualiza `release.env` cuando termina correctamente. Si falla, intenta volver a las imágenes anteriores; los datos no se restauran automáticamente. Las migraciones deben seguir siendo compatibles con la versión anterior para permitir ese rollback. No se borran copias automáticamente: revisar espacio y guardar copias externas periódicamente.
 
-Para volver a un commit ya publicado, usar la clave de despliegue con `ssh ... 'deploy <SHA>'` y suministrar por entrada estándar un token GHCR con lectura de los paquetes. Para volver a desplegar el `main` actual, ejecutar el workflow manualmente. El registro `release.env` identifica la versión activa.
+El protocolo `deploy-v2 <SHA>` recibe por entrada estándar el token GHCR y un descriptor v2 validado del artefacto del mismo run. Instalar gateway, runner y Compose juntos antes de liberar: el gateway antiguo rechaza ese comando. Se promueven las tres imágenes analizadas sin reconstruir; el runner verifica sus IDs antes de arrancar y los fija en Compose. `release.env` guarda SHA/IDs atómicamente al terminar. Para repetir una liberación moderna, ejecutar el workflow autorizado y usar su descriptor; no basta con disponer de un tag antiguo o token. El rollback automático conserva los IDs reales anteriores, incluidas versiones sin paquete DB. Ver [imagen, protocolo y reversión](database/README.md).
 
 Los límites de memoria son 512 MiB para PostgreSQL, 384 MiB para la API y 128 MiB para Nginx. Los logs rotan a tres archivos de 10 MiB por servicio. Las imágenes se construyen en GitHub, no en la VPS de 1 vCPU.
 

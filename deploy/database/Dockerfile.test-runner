@@ -1,0 +1,11 @@
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
+COPY deploy/deploy.sh deploy/ssh-gateway.sh deploy/compose.yaml deploy/legacy-rollback.yaml /srv/sugar/
+COPY deploy/security/check-files.py /srv/sugar/security/check-files.py
+COPY deploy/database/runner-smoke.py /test/runner-smoke.py
+COPY deploy/database/fake-runtime.py /usr/bin/docker
+RUN chmod 755 /srv/sugar/*.sh /usr/bin/docker \
+    && chmod 644 /srv/sugar/compose.yaml /srv/sugar/legacy-rollback.yaml /srv/sugar/security/check-files.py \
+    && touch /test/runner-fixture-only \
+    && ln -s /usr/bin/docker /usr/bin/curl
+CMD ["python3", "/test/runner-smoke.py"]

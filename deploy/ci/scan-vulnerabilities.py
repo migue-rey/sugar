@@ -104,7 +104,7 @@ def main():
         if args.manifest and not blocked:
             if set(provenance) != {'api-image', 'web-image', 'database-image'}:
                 raise ValueError('missing image scan provenance')
-            args.manifest.write_text(json.dumps({'version': 1, 'commit': args.commit, 'images': provenance}))
+            args.manifest.write_text(json.dumps({'version': 2, 'commit': args.commit, 'images': provenance}))
         scopes = (['api-runtime', 'api-build', 'web-runtime', 'web-build'] if args.npm else []) + (['api-image', 'web-image', 'database-image'] if args.images else [])
         for scope in scopes:
             group = [item for item in findings if item['scope'] == scope]

@@ -23,6 +23,9 @@ test('workflow rejects unsafe release and validation changes', () => {
     w => { w.jobs.publish.steps.find(step => step.uses?.startsWith('actions/download-artifact@')).with['run-id'] = 123 },
     w => { w.jobs.publish.steps = w.jobs.publish.steps.filter(step => !step.run?.includes('runtime-artifact.py promote')) },
     w => { w.jobs.publish.steps.push({ run: 'docker build api' }) },
+    w => { w.jobs.publish.strategy.matrix.component = ['api', 'web'] },
+    w => { w.jobs.deploy.steps = w.jobs.deploy.steps.filter(step => !step.uses?.startsWith('actions/download-artifact@')) },
+    w => { w.jobs.deploy.steps.find(step => step.run?.includes('runtime-artifact.py describe')).run = 'echo deploy' },
   ]
   for (const change of changes) { const workflow = fixture(); change(workflow); assert(validate(workflow).length) }
 })

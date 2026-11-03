@@ -86,6 +86,8 @@ jobs:
           set -euo pipefail
           bash -n deploy/deploy.sh deploy/ssh-gateway.sh
           python3 -m unittest discover -s deploy/security -p 'test_*.py'
+          docker build -f deploy/database/Dockerfile.test-runner -t sugar-release-runner-test .
+          docker run --rm --network none sugar-release-runner-test
           docker build -f deploy/security/Dockerfile.test -t sugar-admin-security-test .
           docker run --rm --network none sugar-admin-security-test
       - name: Isolated service network policy
@@ -106,7 +108,9 @@ jobs:
           docker build -t sugar-privilege-api api
           docker build -f deploy/containers/Dockerfile.test -t sugar-privilege-api-check .
           docker build -t sugar-privilege-web web
-          python3 deploy/containers/smoke.py
+          docker build -t sugar-privilege-database deploy/database
+          GOSU_TEST_IMAGE=sugar-privilege-database python3 -m unittest discover -s deploy/database -p 'test_gosu.py'
+          python3 deploy/containers/smoke.py --rollback-database-image postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
           python3 -m unittest discover -s deploy/headers -p 'test_*.py'
       - run: npm ci
         working-directory: web
@@ -117,11 +121,7 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s deploy/ci -p 'test_vulnerabilities.py'
           ARTIFACT_DOCKER_TEST=1 python3 -m unittest discover -s deploy/ci -p 'test_artifacts.py'
-          docker build -f deploy/database/Dockerfile.security-candidate -t sugar-db-security-candidate deploy/database
-          GOSU_TEST_IMAGE=sugar-db-security-candidate python3 -m unittest discover -s deploy/database -p 'test_gosu.py'
-          python3 deploy/containers/smoke.py --database-image sugar-db-security-candidate
-          python3 deploy/ci/scan-vulnerabilities.py --images sugar-privilege-api sugar-privilege-web sugar-db-security-candidate
-          python3 deploy/ci/scan-vulnerabilities.py --npm --images sugar-privilege-api sugar-privilege-web postgres:17-alpine --manifest "$RUNNER_TEMP/scanned-images.json" --commit "$GITHUB_SHA"
+          python3 deploy/ci/scan-vulnerabilities.py --npm --images sugar-privilege-api sugar-privilege-web sugar-privilege-database --manifest "$RUNNER_TEMP/scanned-images.json" --commit "$GITHUB_SHA"
       - name: Export verified release images
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: python3 deploy/ci/runtime-artifact.py export --directory "$RUNNER_TEMP/sugar-runtime" --source "$RUNNER_TEMP/scanned-images.json" --commit "$GITHUB_SHA"
@@ -142,7 +142,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        component: [api, web]
+        component: [api, web, database]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -169,6 +169,13 @@ jobs:
       packages: read
     environment: production
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: runtime-${{ github.sha }}
+          path: ${{ runner.temp }}/sugar-runtime/
       - name: Deploy the tested commit through a restricted SSH key
         env:
           DEPLOY_KEY: ${{ secrets.VPS_SSH_KEY }}
@@ -184,6 +191,7 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/sugar_deploy
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           trap 'rm -f ~/.ssh/sugar_deploy' EXIT
-          printf '%s\n' "$REGISTRY_TOKEN" | ssh -T -i ~/.ssh/sugar_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$DEPLOY_USER@$DEPLOY_HOST" "deploy $DEPLOY_SHA"
+          descriptor=$(python3 deploy/ci/runtime-artifact.py describe --directory "$RUNNER_TEMP/sugar-runtime" --commit "$GITHUB_SHA")
+          printf '%s\n%s\n' "$REGISTRY_TOKEN" "$descriptor" | ssh -T -i ~/.ssh/sugar_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$DEPLOY_USER@$DEPLOY_HOST" "deploy-v2 $DEPLOY_SHA"
       - name: Verify public HTTPS endpoint
         run: curl --fail --show-error --silent --retry 6 --retry-delay 5 https://sugar.maykolrey.com/api/health

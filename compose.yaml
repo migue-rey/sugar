@@ -1,6 +1,7 @@
 services:
   db:
-    image: postgres:17-alpine
+    build: ./deploy/database
+    image: sugar-database:local
     environment:
       POSTGRES_DB: hardware_designer
       POSTGRES_USER: designer

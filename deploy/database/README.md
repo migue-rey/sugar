@@ -30,22 +30,30 @@ CI además ejecuta las suites API con servidores runtime y conexiones administra
 
 Fuentes: [GRANT PostgreSQL 17](https://www.postgresql.org/docs/17/sql-grant.html), [default privileges](https://www.postgresql.org/docs/17/sql-alterdefaultprivileges.html).
 
-## Candidata de imagen: etapa técnica pendiente de #14
+## Imagen PostgreSQL corregida — #29
 
-`Dockerfile.security-candidate` **no es la imagen de Compose ni de producción**. Conserva exactamente PostgreSQL 17.11 y Alpine de la base oficial por digest; reemplaza únicamente gosu y añade su licencia. La fuente gosu 1.20 está fijada al commit `29b939aa5bd4dc588af765b8248f6e39150d2565` y al SHA-256 del archivo descargado. Se reconstruye con Go 1.27.3 por digest y x/sys 0.44.0 exacto; Go verifica los módulos. El binario es estático, sin setuid/setgid en el archivo; la identidad y el entrypoint originales de PostgreSQL se conservan. No se ignoran los avisos del binario anterior.
+`Dockerfile` es ahora la imagen DB seleccionada por ambos Compose: `sugar-database:local` mediante build local y `ghcr.io/picli3/sugar-database:<commit>` para la próxima liberación autorizada. Conserva PostgreSQL 17.11 y Alpine de la base oficial por digest; reemplaza únicamente gosu e incluye su licencia. La fuente gosu 1.20 está fijada al commit `29b939aa5bd4dc588af765b8248f6e39150d2565` y SHA-256 del archivo. Se reconstruye con Go 1.27.3 por digest y x/sys 0.44.0 exacto; Go verifica los módulos. El binario es estático, sin bits setuid/setgid; conserva el entrypoint, UID/GID y rutas del volumen originales. No se ignoran los avisos del binario anterior ni se cambia el major.
 
 ```sh
-docker build -f deploy/database/Dockerfile.security-candidate -t sugar-db-security-candidate deploy/database
-GOSU_TEST_IMAGE=sugar-db-security-candidate python3 -m unittest discover -s deploy/database -p 'test_gosu.py'
-# Requiere las imágenes de fixtures API/web descritas en deploy/containers:
-python3 deploy/containers/smoke.py --database-image sugar-db-security-candidate
-python3 deploy/ci/scan-vulnerabilities.py --images sugar-privilege-api sugar-privilege-web sugar-db-security-candidate
+docker build -t sugar-privilege-database deploy/database
+GOSU_TEST_IMAGE=sugar-privilege-database python3 -m unittest discover -s deploy/database -p 'test_gosu.py'
+# Construir también los fixtures API/web indicados en deploy/containers:
+python3 deploy/containers/smoke.py --rollback-database-image postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
+python3 deploy/ci/scan-vulnerabilities.py --images sugar-privilege-api sugar-privilege-web sugar-privilege-database
 ```
 
-El ensayo usa redes/volumen desechables y datos inventados. Comprueba entrada inicial, migración/rol SQL, API restringida, imágenes, IA simulada, sincronización ficticia y persistencia después de parar API, reiniciar DB y arrancar nuevamente. Los tests de gosu comprueban usuarios/grupos por nombre y número, usuario/comando inválido y rechazo de elevar privilegios desde nobody, con red deshabilitada, raíz de solo lectura y capacidades limitadas a cambios UID/GID. No ejecutarlos contra instalaciones existentes.
+El ensayo usa redes/volumen desechables y datos inventados: original → corregida → original → corregida, conservando el mismo volumen y verificando proyectos/revisiones, imágenes, sesiones, análisis/credenciales sintéticas y sync simulado. Arranca servicios por sus identidades Docker e inspecciona que Compose acepte las identidades verificadas también para maintenance. Prueba inicialización, migración/SQL restringido y persistencia tras parar API y reiniciar DB. Los tests de gosu cubren nombres/números de usuario/grupo, usuario/comando inválido y rechazo de elevar privilegios desde nobody, sin red y con capacidades limitadas.
 
-El 3 de noviembre la candidata no informó vulnerabilidades en el escáner fijado/base reciente, frente a 61 hallazgos (27 HIGH) del gosu de la imagen oficial. No garantiza ausencia de vulnerabilidades. Se ejecuta también como ensayo en CI **antes** del gate de la imagen oficial, que continúa bloqueando correctamente.
+El escáner de CI analiza las tres imágenes que ahora se construyen y seleccionan; no apunta a una candidata alternativa. El 3 de noviembre, API/web/DB corregida no informaron avisos conocidos, frente a 61 hallazgos (27 HIGH) del gosu oficial anterior. Es el resultado de la base consultada, no una garantía de ausencia de vulnerabilidades. CI conserva el gate estricto y la lista de excepciones vacía.
 
-**Pendiente técnico para la siguiente entrega:** seleccionar la imagen corregida en Compose local/producción, añadirla a la promoción por identidad del mismo run y preparar reversión compatible con versiones anteriores que solo publicaban API/web. Probar esa integración sin datos reales antes de marcar remediación completa. No basta con cambiar el objetivo del escáner a la candidata mientras Compose use la anterior. La activación real y las protecciones de GitHub requieren una liberación autorizada; aquí no se cambió ninguna instalación.
+## Liberación por identidad y compatibilidad
 
-Fuentes: [gosu oficial](https://github.com/tianon/gosu), [fuente exacta](https://github.com/tianon/gosu/tree/29b939aa5bd4dc588af765b8248f6e39150d2565), [imagen oficial PostgreSQL](https://github.com/docker-library/postgres).
+Antes de la primera liberación instalar **juntos**, con autorización nueva, gateway, runner, Compose y override legacy revisados. El protocolo SSH cambia a `deploy-v2 <SHA>`: un gateway antiguo lo rechaza antes de desplegar. Entrada estándar: primera línea token GHCR efímero; segunda línea descriptor compacto v2 del mismo artefacto de Actions, con commit y tres identidades Docker. No escribir tokens en argumentos/logs ni fabricar descriptores a mano. Un workflow antiguo sin descriptor tampoco pasa el runner nuevo.
+
+La publicación exporta y promueve las tres imágenes del gate, sin reconstruir. El runner valida el descriptor, descarga API/web/DB y comprueba sus IDs contra él **antes de cambiar contenedores**. Después fija `API_IMAGE`, `WEB_IMAGE` y `DATABASE_IMAGE` a esos IDs locales; migration y servicios arrancan con esas identidades. Los IDs Docker verifican configuración/contenido de runtime; no se confunden con el digest de un manifiesto OCI comprimido ni sustituyen una firma/atestación. Las imágenes se generan para la arquitectura del runner; otras plataformas requieren build/análisis correspondiente.
+
+El runner conserva los IDs reales de los contenedores anteriores (también detenidos), sin necesitar un paquete DB en una liberación antigua. Ante fallo de arranque, migración o salud, restaura esos IDs locales y la configuración de credenciales previa; funciona incluso al repetir el mismo SHA con tags cambiados. Nunca descarga una supuesta imagen DB antigua construyendo un tag desde el SHA anterior. Si falta un contenedor/imagen necesario o hay una identidad inesperada, se detiene para revisión. No hacer prune de esas imágenes durante una liberación. `release.env` se reemplaza atómicamente, modo 0600, solo después del éxito y registra SHA, modo de acceso y los tres IDs. No restaura ni borra datos automáticamente; la compatibilidad de futuras migraciones sigue requiriendo revisión.
+
+El ensayo `Dockerfile.test-runner` ejecuta el runner root real con Docker/curl ficticios, sin daemon/red/volúmenes del host. Cubre liberación inicial, contenedores detenidos, fallos de pull/identidad por componente, inicio DB/API, migración/salud, rollback legacy/runtime y repetición del SHA, descriptor inválido/incompleto/excesivo y metadatos inalterados al fallar. Esto verifica la orquestación; la conservación real de PostgreSQL se prueba aparte en Compose. La subida/descarga de artefactos de GitHub, push de registro y aplicación real quedan para la liberación autorizada, no se ejecutan en dev.
+
+Fuentes: [gosu oficial](https://github.com/tianon/gosu), [fuente exacta](https://github.com/tianon/gosu/tree/29b939aa5bd4dc588af765b8248f6e39150d2565), [imagen oficial PostgreSQL](https://github.com/docker-library/postgres), [Docker inspect](https://docs.docker.com/reference/cli/docker/image/inspect/), [variables Compose](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/).

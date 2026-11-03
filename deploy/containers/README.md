@@ -9,12 +9,13 @@ python3 -m unittest discover -s deploy/containers -p 'test_*.py'
 docker build -t sugar-privilege-api api
 docker build -f deploy/containers/Dockerfile.test -t sugar-privilege-api-check .
 docker build -t sugar-privilege-web web
+docker build -t sugar-privilege-database deploy/database
 python3 deploy/containers/smoke.py
 ```
 
 El validador comprueba ambas configuraciones renderizadas sin cargar `.env` ni imprimir sus valores. El ensayo usa un proyecto Compose único, un volumen PostgreSQL desechable y redes internas sin puertos publicados ni Internet. Conserva las restricciones reales de la API; solo sustituye imágenes por las construidas localmente y añade el mock de DeepSeek a una imagen exclusiva de prueba. La imagen publicada no incluye mocks ni interruptores de proveedor falso.
 
-Comprueba UID/GID de Node/init, capacidades efectivas nulas, prohibición de nuevos privilegios, raíz no escribible, tamaño de tmpfs y lectura de secretos privados de su usuario. Verifica frontend/health, sesión, proyecto/revisiones, carga/lectura de imagen, análisis con DeepSeek simulado y cola GitHub mediante autenticación/HTTP inyectados. Reinicia la API y comprueba que sesión, imagen, revisión, análisis/configuración y sincronización persisten. No emplea credenciales reales ni envía consultas facturables/publicaciones. Limpia únicamente el proyecto/volumen que creó.
+Comprueba UID/GID de Node/init, capacidades efectivas nulas, prohibición de nuevos privilegios, raíz no escribible, tamaño de tmpfs y lectura de secretos privados de su usuario. Verifica frontend/health, sesión, proyecto/revisiones, carga/lectura de imagen, análisis con DeepSeek simulado y cola GitHub mediante autenticación/HTTP inyectados. Reinicia API/DB y comprueba que sesión, imagen, revisión, análisis/configuración y sincronización persisten. No emplea credenciales reales ni envía consultas facturables/publicaciones. Limpia únicamente el proyecto/volumen que creó.
 
 ## Compatibilidad y liberación
 

@@ -71,8 +71,8 @@ with tempfile.TemporaryDirectory() as folder:
         assert ssh('operator', 'operator-b', ['id', '-un']).stdout.strip() == 'operator'
         ssh('operator', 'operator-a', ['id'], success=False, extra=['-o', 'PubkeyAuthentication=no', '-o', 'PreferredAuthentications=password'])
         sha = 'a' * 40
-        assert f'allowed {sha} uid=0' in ssh('sugar-deploy', 'ci', ['deploy', sha]).stdout
-        for command in [['id'], ['deploy', sha, 'extra'], ['deploy', sha + ';id']]:
+        assert f'allowed {sha} uid=0' in ssh('sugar-deploy', 'ci', ['deploy-v2', sha]).stdout
+        for command in [['deploy', sha], ['id'], ['deploy-v2', sha, 'extra'], ['deploy-v2', sha + ';id']]:
             ssh('sugar-deploy', 'ci', command, success=False)
         ssh('sugar-deploy', 'ci', [], success=False, extra=['-N', '-R', '127.0.0.1:0:127.0.0.1:2222', '-o', 'ExitOnForwardFailure=yes'])
         # Real runner rejects extra arguments before touching its deployment directory.

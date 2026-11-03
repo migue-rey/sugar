@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Promote the exact API/web images scanned in this workflow run, without rebuilding."""
+"""Promote the exact API/web/database images scanned in this workflow run, without rebuilding."""
 import argparse
 import hashlib
 import json
@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 
-COMPONENTS = {'api': 'sugar-privilege-api', 'web': 'sugar-privilege-web'}
+COMPONENTS = {'api': 'sugar-privilege-api', 'web': 'sugar-privilege-web', 'database': 'sugar-privilege-database'}
 
 
 def checked(command):
@@ -24,7 +24,7 @@ def digest(path):
 
 def read_manifest(path, commit):
     manifest = json.loads(path.read_text())
-    if not re.fullmatch(r'[a-f0-9]{40}', commit) or manifest.get('version') != 1 or manifest.get('commit') != commit:
+    if not re.fullmatch(r'[a-f0-9]{40}', commit) or manifest.get('version') != 2 or manifest.get('commit') != commit:
         raise ValueError('artifact commit mismatch')
     for component in COMPONENTS:
         image = manifest['images'][component + '-image']
@@ -67,7 +67,7 @@ def promote(directory, commit, component, push=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('export', 'promote'))
+    parser.add_argument('action', choices=('export', 'promote', 'describe'))
     parser.add_argument('--directory', type=Path, required=True)
     parser.add_argument('--commit', required=True)
     parser.add_argument('--source', type=Path)
@@ -76,11 +76,19 @@ def main():
     args = parser.parse_args()
     if args.action == 'export' and (not args.source or args.component or args.push):
         parser.error('export requires --source and cannot push')
+    if args.action == 'describe' and (args.source or args.component or args.push):
+        parser.error('describe requires only directory and commit')
     if args.action == 'promote' and (not args.component or args.source):
         parser.error('promote requires --component')
     try:
         if args.action == 'export':
             export(args.directory, args.source, args.commit)
+        elif args.action == 'describe':
+            manifest = read_manifest(args.directory / 'manifest.json', args.commit)
+            descriptor = {'version': 2, 'commit': args.commit, 'images': {
+                name + '-image': {'id': manifest['images'][name + '-image']['id']} for name in COMPONENTS
+            }}
+            print(json.dumps(descriptor, separators=(',', ':')))
         else:
             promote(args.directory, args.commit, args.component, args.push)
         return 0
