@@ -29,7 +29,7 @@ class EdgeTests(unittest.TestCase):
             try:
                 subprocess.run(['docker', 'run', '-d', '--name', name, '--network', 'none',
                                 '--mount', f'type=bind,src={folder},dst=/checks,readonly',
-                                'nginx:1.27-alpine', 'nginx', '-g', 'daemon off;', '-c', '/checks/nginx.conf'],
+                                'nginx:1.30.6-alpine', 'nginx', '-g', 'daemon off;', '-c', '/checks/nginx.conf'],
                                check=True, stdout=subprocess.DEVNULL)
                 for attempt in range(30):
                     ready = subprocess.run(['docker', 'exec', name, 'wget', '-q', '-O', '/dev/null',
