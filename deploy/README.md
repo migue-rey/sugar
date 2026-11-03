@@ -39,3 +39,7 @@ El [runbook de seguridad](security/README.md) incluye acceso alternativo, recupe
 ### Política de red (#10)
 
 Producción usa redes separadas: front para web; application interna para web/API; database interna solo para API/PostgreSQL; egress para las llamadas salientes de API. Solo web publica `127.0.0.1:18088`. El volumen PostgreSQL conserva su nombre. Ver [inventario, matriz de conexiones y reversión](network/README.md) antes de aplicar cambios. El rollback automático de imágenes no restaura una configuración de red previa. No se ha aplicado ni validado esta política en la VPS real.
+
+### Backups cifrados (#11, etapa 1)
+
+El [creador cifrado y ensayo de recuperación](backup/README.md) prepara archivos age mediante un destinatario público y comprueba restauración con datos ficticios. No reemplaza los dumps previos al despliegue ni instala tareas. Transferencia externa, paquete de claves/configuración, retención, alertas y activación siguen pendientes. No se ha respaldado ni restaurado producción con esta herramienta.
