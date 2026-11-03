@@ -4,6 +4,7 @@ import { sessionLifetime } from './service.js'
 export function registerAuthRoutes(app, { auth, sessionSecure, loginGate }) {
   app.post('/api/login', noStore, loginGate, asyncRoute(async (req, res) => {
     const result = await auth.login(req.body)
+    res.locals.auditActor = result.user.id
     res.cookie('session', result.token, { httpOnly: true, sameSite: 'strict', secure: sessionSecure || req.secure, maxAge: sessionLifetime * 1000, path: '/' })
     res.json(result.user)
   }))

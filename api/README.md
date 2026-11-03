@@ -167,3 +167,5 @@ Los fallos inesperados HTTP, GitHub y arranque registran códigos permitidos; no
 ## Liveness y readiness (#23, etapa 1)
 
 `GET /api/health` confirma solo que Express responde. `GET /api/ready` consulta el marcador de esquema con el pool/rol reales y devuelve únicamente `{ok:true}` (200) o `{ok:false}` (503), sin autenticación ni diagnósticos. Tiene deadline HTTP de 1,5 segundos, una comprobación compartida, caché de un segundo y los límites API existentes. Compose y los verificadores de despliegue usan readiness. Ver [alcance, límites y ensayos de fallo/recuperación](../deploy/monitoring/README.md). Las alertas externas y la auditoría de operaciones siguen pendientes.
+
+La etapa 2a de #23 añade eventos JSON de seguridad `sugar.audit.v1` a stdout para accesos y escrituras seleccionados, con UUID de actor/recurso y resultado HTTP. Excluye cuerpos, URLs, emails, tokens e IDs de sesión; desconexiones se registran como intento abortado, no como commit SQL confirmado. Ver retención por capacidad, redacción y pendientes de durabilidad/alertas en [monitoring](../deploy/monitoring/README.md).

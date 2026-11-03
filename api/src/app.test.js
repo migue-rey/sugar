@@ -40,7 +40,8 @@ test('HTTP contracts retain public routes, session cookies, authentication and e
     if (sql.includes('WHERE p.id=$1')) throw Object.assign(Error('bad id'), { code: '22P02' })
     throw Error('Unexpected query: ' + sql)
   }
-  const app = createApp({ q, transaction: async fn => fn(q), secret: 'test-secret', enqueue: async () => {}, syncOne: async () => {}, sessionSecure: true })
+  const audit = []
+  const app = createApp({ q, transaction: async fn => fn(q), secret: 'test-secret', enqueue: async () => {}, syncOne: async () => {}, sessionSecure: true, auditWriter: event => audit.push(event) })
   const server = app.listen(0, '127.0.0.1')
   await new Promise(resolve => server.once('listening', resolve))
   t.after(() => new Promise(resolve => server.close(resolve)))
@@ -60,6 +61,10 @@ test('HTTP contracts retain public routes, session cookies, authentication and e
   res = await request('/login', { email: 'missing@local', password: 'wrong' }); assert.equal(res.status, 401); assert.deepEqual(await res.json(), { error: 'Credenciales inválidas' })
   res = await request('/login', { email: 'ADMIN@LOCAL', password: 'local-test-password' }); assert.equal(res.status, 200)
   assert.deepEqual(await res.json(), user)
+  assert(audit.some(event => event.operation === 'auth.login' && event.actor === null && event.result === 'denied'))
+  assert(audit.some(event => event.operation === 'auth.login' && event.actor === user.id && event.result === 'success'))
+  assert(!JSON.stringify(audit).includes('local-test-password'))
+  assert(!JSON.stringify(audit).includes(user.email))
   const setCookie = res.headers.get('set-cookie'), cookie = setCookie.split(';')[0]
   assert.match(setCookie, /HttpOnly/); assert.match(setCookie, /Secure/); assert.match(setCookie, /SameSite=Strict/); assert.match(setCookie, /Path=\//)
   res = await request('/me', null, cookie); assert.deepEqual(await res.json(), user)

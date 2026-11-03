@@ -28,10 +28,11 @@ import { registerAi } from './ai.js'
 import { createProjectSyncService } from './github.js'
 import { registerSyncRoutes } from './github/routes.js'
 import { createReadiness, databaseProbe } from './monitoring/readiness.js'
+import { securityAudit } from './monitoring/audit.js'
 
 // Composition only: no DB initialization, listener, timers or background workers.
 // Query, transaction, session secret and GitHub operations belong to the caller.
-export function createApp({ q, transaction, secret, enqueue, syncOne, callProvider, sessionSecure = process.env.SESSION_SECURE === 'true', accessConfig = limitsConfig(), trustedProxies = process.env.TRUSTED_PROXIES || '', origin = process.env.PUBLIC_ORIGIN || '' }) {
+export function createApp({ q, transaction, secret, enqueue, syncOne, callProvider, auditWriter, sessionSecure = process.env.SESSION_SECURE === 'true', accessConfig = limitsConfig(), trustedProxies = process.env.TRUSTED_PROXIES || '', origin = process.env.PUBLIC_ORIGIN || '' }) {
   const app = express()
   app.set('trust proxy', proxyList(trustedProxies))
   app.disable('x-powered-by')
@@ -39,6 +40,7 @@ export function createApp({ q, transaction, secret, enqueue, syncOne, callProvid
   app.use('/api', apiHeaders, requestOrigin(publicOrigin(origin)))
   const controls = createAccessControls({ secret, config: accessConfig })
   app.use('/api', controls.api)
+  app.use('/api', securityAudit({ write: auditWriter }))
   app.post(['/api/login', '/api/me/password', '/api/users'], express.json({ limit: '4kb' }))
   app.use(express.json({ limit: '3mb' }))
   app.use(cookieParser())
