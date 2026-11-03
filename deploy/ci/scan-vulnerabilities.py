@@ -42,7 +42,11 @@ def audits():
             result = run(command, cwd=ROOT / component)
             if result.returncode not in (0, 1):
                 raise RuntimeError('npm audit failed')
-            findings.extend(npm_findings(json.loads(result.stdout), f'{component}-{kind}'))
+            report = json.loads(result.stdout)
+            parsed = npm_findings(report, f'{component}-{kind}')
+            if result.returncode and not parsed:
+                raise ValueError('inconsistent npm audit exit status')
+            findings.extend(parsed)
     return findings
 
 

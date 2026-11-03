@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 import json
 from pathlib import Path
 import tempfile
+import subprocess
 from unittest.mock import patch
 import unittest
 from vulnerabilities import apply_policy, fresh_database, image_findings, npm_findings
@@ -36,7 +37,7 @@ class VulnerabilityTests(unittest.TestCase):
 
     def test_exceptions_cannot_expand_scope_or_outlive_review(self):
         self.assertFalse(apply_policy([self.finding()], [self.exception()], NOW))
-        for key, value in [('scope', 'web-image'), ('version', '2.0'), ('target', 'other/path')]:
+        for key, value in [('scope', 'web-image'), ('version', '2.0'), ('target', 'other/path'), ('package', 'other'), ('id', 'other')]:
             with self.subTest(key=key), self.assertRaises(ValueError):
                 apply_policy([self.finding(**{key: value})], [self.exception()], NOW)
         for key, value in [('expires', NOW.isoformat()),
@@ -46,6 +47,8 @@ class VulnerabilityTests(unittest.TestCase):
                 exception = self.exception()
                 exception[key] = value
                 apply_policy([self.finding()], [exception], NOW)
+        with self.assertRaises(ValueError):
+            apply_policy([self.finding()], [self.exception(), self.exception()], NOW)
 
     def test_database_must_be_fresh_and_versioned(self):
         fresh_database({'Version': 2, 'UpdatedAt': NOW.isoformat()}, NOW)
@@ -79,6 +82,12 @@ class VulnerabilityTests(unittest.TestCase):
         self.assertTrue(apply_policy(npm_findings(report, 'api-runtime'), [], NOW))
         report['error'] = {'code': 'ENETUNREACH'}
         with self.assertRaises(ValueError): npm_findings(report, 'api-runtime')
+
+    def test_npm_failure_without_findings_is_not_a_success(self):
+        report = {'auditReportVersion': 2, 'vulnerabilities': {}, 'metadata': {'vulnerabilities': {'total': 0}}}
+        result = subprocess.CompletedProcess([], 1, json.dumps(report).encode())
+        with patch.object(SCANNER, 'run', return_value=result), self.assertRaises(ValueError):
+            SCANNER.audits()
 
     def test_scanner_errors_block_without_diagnostic_leaks(self):
         output = io.StringIO()

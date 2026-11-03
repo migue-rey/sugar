@@ -16,7 +16,7 @@ def run(args, **kwargs):
     return subprocess.run(args, check=True, text=True, capture_output=True, timeout=240, **kwargs).stdout
 
 
-def main(preview=False):
+def main(preview=False, database_image=None):
     project = 'sugar-privilege-test-' + uuid.uuid4().hex[:10]
     env = {key: os.environ[key] for key in ['PATH', 'HOME', 'DOCKER_HOST', 'DOCKER_CONTEXT', 'XDG_RUNTIME_DIR'] if key in os.environ}
     env.update(RUNTIME_DB_PASSWORD='b' * 64, DB_PASSWORD='synthetic-container-password', ADMIN_EMAIL='admin@example.invalid',
@@ -37,6 +37,8 @@ def main(preview=False):
     config['services']['migrate'] = maintenance['services']['migrate']
     config['services']['migrate']['image'] = 'sugar-privilege-api-check'
     services = config['services']
+    if database_image:
+        services['db']['image'] = database_image
     services['api']['image'] = 'sugar-privilege-api-check'
     services['web']['image'] = 'sugar-privilege-web'
     services['web'].pop('ports', None)
@@ -69,7 +71,12 @@ def main(preview=False):
             assert not host.get('Binds') and not host.get('PortBindings')
             state = run(base + ['exec', '-T', 'api', 'node', '/checks/verify.mjs', 'create'], env=env)
             json.loads(state)  # Synthetic test cookie stays in memory, never logged.
-            run(base + ['restart', 'api'], env=env)
+            if database_image:
+                # Exercise the candidate's root entrypoint on an existing volume too.
+                run(base + ['stop', 'api'], env=env)
+                run(base + ['restart', 'db'], env=env)
+            else:
+                run(base + ['restart', 'api'], env=env)
             run(base + ['up', '-d', '--wait', '--wait-timeout', '120'], env=env)
             print(run(base + ['exec', '-T', 'api', 'node', '/checks/verify.mjs', 'persist'], input=state, env=env))
             if preview:
@@ -82,8 +89,10 @@ def main(preview=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--preview', action='store_true', help='Keep synthetic HTTP preview until Enter')
+    parser.add_argument('--database-image', help='Test an alternate DB image only in disposable Compose')
     try:
-        main(parser.parse_args().preview)
+        args = parser.parse_args()
+        main(args.preview, args.database_image)
     except subprocess.CalledProcessError as error:
         # Test fixtures only, but never dump rendered configuration or environment.
         print(error.stderr)

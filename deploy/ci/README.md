@@ -24,7 +24,7 @@ Los fixtures son repositorios desechables con un token **inventado, nunca emitid
 
 ## Configuración del propietario: no aplicada
 
-Lectura del estado el 3 de noviembre: no se obtuvo una protección clásica de main y el entorno production no tenía reglas de protección ni restricción de ramas. Esto no es una auditoría completa de reglas de la cuenta/rulesets. **No se modificó ninguno de esos controles, secretos ni accesos.**
+Lectura del estado el 3 de noviembre: no se obtuvo una protección clásica de main y el entorno production no tenía reglas de protección ni restricción de ramas. La consulta adicional de rulesets del repositorio (incluidos padres) y reglas aplicables a main devolvió cero; no se afirma una auditoría completa de permisos/políticas de toda la cuenta. **No se modificó ninguno de esos controles, secretos ni accesos.**
 
 Antes de liberar esta entrega, revisar y aprobar:
 
@@ -56,7 +56,7 @@ El gate corre al final del job `test`, después de las pruebas funcionales, reut
 
 El 3 de noviembre, npm no informó avisos en ninguno de los cuatro ámbitos. Trivy detectó diez avisos HIGH en el npm incluido en la antigua imagen de API. El runtime de API ahora copia solo Node y los módulos de aplicación a Alpine 3.24 con libstdc++; no incluye npm/yarn/corepack. El escaneo de esa imagen no informó vulnerabilidades. Las pruebas de API y Compose aislado verifican el arranque, migración, restricciones, permisos, imágenes, IA simulada y persistencia con ese runtime mínimo.
 
-La imagen web Nginx 1.30.6/Alpine 3.24.3 informó inicialmente seis hallazgos HIGH/CRITICAL en brotli-libs, curl/libcurl y libexpat. Tras actualizar los paquetes de esa misma rama Alpine con `apk upgrade --no-cache`, su escaneo no informó vulnerabilidades. **El gate completo actualmente bloquea**: PostgreSQL 17.11/Alpine 3.24.3 informó 27 HIGH en Go stdlib/x/sys dentro de gosu, herramienta de cambio de usuario de su entrypoint. Consultar los informes del job para versiones/CVE vigentes. La etiqueta oficial de PostgreSQL se volvió a descargar y no cambió. No se aprobaron excepciones, no se modificó el volumen y no se afirma explotación remota de estos componentes. Su remediación/evaluación específica es la siguiente etapa de #14; no se declara verde ni se cierra el issue.
+La imagen web Nginx 1.30.6/Alpine 3.24.3 informó inicialmente seis hallazgos HIGH/CRITICAL en brotli-libs, curl/libcurl y libexpat. Tras actualizar los paquetes de esa misma rama Alpine con `apk upgrade --no-cache`, su escaneo no informó vulnerabilidades. **El gate completo actualmente bloquea**: PostgreSQL 17.11/Alpine 3.24.3 informó 27 HIGH en Go stdlib/x/sys dentro de gosu, herramienta de cambio de usuario de su entrypoint. Consultar los informes del job para versiones/CVE vigentes. La etiqueta oficial de PostgreSQL se volvió a descargar y no cambió. No se aprobaron excepciones, no se modificó el volumen y no se afirma explotación remota de estos componentes. Se preparó una candidata de PostgreSQL con gosu 1.20 reconstruido en Go 1.27.3/x/sys 0.44.0, sin avisos conocidos y con ensayos aislados correctos; ver `../database/README.md`. Todavía no se selecciona en Compose ni se promueve a producción. La integración/reversión es la siguiente etapa de #14; el gate de la imagen efectiva continúa bloqueando y no se declara verde ni se cierra el issue.
 
 ### Promoción de imágenes analizadas
 

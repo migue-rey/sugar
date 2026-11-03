@@ -29,3 +29,23 @@ El ensayo de `deploy/containers/smoke.py` usa datos ficticios: crea primero usua
 CI además ejecuta las suites API con servidores runtime y conexiones administrativas reservadas a preparar/limpiar schemas desechables. El test de secretos lanza migración y servidor como procesos separados con archivos privados. El rechazo de flags administrativos/versiones incorrectas y de contraseñas inválidas tiene pruebas unitarias. No se enviaron consultas facturables, correos ni datos reales. PostgreSQL/web mantienen sus entrypoints y necesidades de escritura; esta entrega no pretende convertirlos a raíz de solo lectura.
 
 Fuentes: [GRANT PostgreSQL 17](https://www.postgresql.org/docs/17/sql-grant.html), [default privileges](https://www.postgresql.org/docs/17/sql-alterdefaultprivileges.html).
+
+## Candidata de imagen: etapa técnica pendiente de #14
+
+`Dockerfile.security-candidate` **no es la imagen de Compose ni de producción**. Conserva exactamente PostgreSQL 17.11 y Alpine de la base oficial por digest; reemplaza únicamente gosu y añade su licencia. La fuente gosu 1.20 está fijada al commit `29b939aa5bd4dc588af765b8248f6e39150d2565` y al SHA-256 del archivo descargado. Se reconstruye con Go 1.27.3 por digest y x/sys 0.44.0 exacto; Go verifica los módulos. El binario es estático, sin setuid/setgid en el archivo; la identidad y el entrypoint originales de PostgreSQL se conservan. No se ignoran los avisos del binario anterior.
+
+```sh
+docker build -f deploy/database/Dockerfile.security-candidate -t sugar-db-security-candidate deploy/database
+GOSU_TEST_IMAGE=sugar-db-security-candidate python3 -m unittest discover -s deploy/database -p 'test_gosu.py'
+# Requiere las imágenes de fixtures API/web descritas en deploy/containers:
+python3 deploy/containers/smoke.py --database-image sugar-db-security-candidate
+python3 deploy/ci/scan-vulnerabilities.py --images sugar-privilege-api sugar-privilege-web sugar-db-security-candidate
+```
+
+El ensayo usa redes/volumen desechables y datos inventados. Comprueba entrada inicial, migración/rol SQL, API restringida, imágenes, IA simulada, sincronización ficticia y persistencia después de parar API, reiniciar DB y arrancar nuevamente. Los tests de gosu comprueban usuarios/grupos por nombre y número, usuario/comando inválido y rechazo de elevar privilegios desde nobody, con red deshabilitada, raíz de solo lectura y capacidades limitadas a cambios UID/GID. No ejecutarlos contra instalaciones existentes.
+
+El 3 de noviembre la candidata no informó vulnerabilidades en el escáner fijado/base reciente, frente a 61 hallazgos (27 HIGH) del gosu de la imagen oficial. No garantiza ausencia de vulnerabilidades. Se ejecuta también como ensayo en CI **antes** del gate de la imagen oficial, que continúa bloqueando correctamente.
+
+**Pendiente técnico para la siguiente entrega:** seleccionar la imagen corregida en Compose local/producción, añadirla a la promoción por identidad del mismo run y preparar reversión compatible con versiones anteriores que solo publicaban API/web. Probar esa integración sin datos reales antes de marcar remediación completa. No basta con cambiar el objetivo del escáner a la candidata mientras Compose use la anterior. La activación real y las protecciones de GitHub requieren una liberación autorizada; aquí no se cambió ninguna instalación.
+
+Fuentes: [gosu oficial](https://github.com/tianon/gosu), [fuente exacta](https://github.com/tianon/gosu/tree/29b939aa5bd4dc588af765b8248f6e39150d2565), [imagen oficial PostgreSQL](https://github.com/docker-library/postgres).

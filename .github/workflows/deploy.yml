@@ -117,6 +117,10 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s deploy/ci -p 'test_vulnerabilities.py'
           ARTIFACT_DOCKER_TEST=1 python3 -m unittest discover -s deploy/ci -p 'test_artifacts.py'
+          docker build -f deploy/database/Dockerfile.security-candidate -t sugar-db-security-candidate deploy/database
+          GOSU_TEST_IMAGE=sugar-db-security-candidate python3 -m unittest discover -s deploy/database -p 'test_gosu.py'
+          python3 deploy/containers/smoke.py --database-image sugar-db-security-candidate
+          python3 deploy/ci/scan-vulnerabilities.py --images sugar-privilege-api sugar-privilege-web sugar-db-security-candidate
           python3 deploy/ci/scan-vulnerabilities.py --npm --images sugar-privilege-api sugar-privilege-web postgres:17-alpine --manifest "$RUNNER_TEMP/scanned-images.json" --commit "$GITHUB_SHA"
       - name: Export verified release images
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
