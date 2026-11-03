@@ -1,8 +1,8 @@
-import { asyncRoute } from '../shared/http.js'
+import { asyncRoute, noStore } from '../shared/http.js'
 
 export function registerPublicProjectRoutes(app, projects) {
-  app.get('/api/public/projects/:id', asyncRoute(async (req, res) => res.json(await projects.public(req.params.id))))
-  app.get('/api/shared/:token', asyncRoute(async (req, res) => res.json(await projects.shared(req.params.token))))
+  app.get('/api/public/projects/:id', noStore, asyncRoute(async (req, res) => res.json(await projects.public(req.params.id))))
+  app.get('/api/shared/:token', noStore, asyncRoute(async (req, res) => res.json(await projects.shared(req.params.token))))
 }
 
 export function registerProjectRoutes(app, projects) {

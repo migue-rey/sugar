@@ -5,7 +5,7 @@ import { requireAdmin } from '../auth/policies.js'
 import { libraryOwner, libraryPermissions, requireLibraryAccess } from '../library/access.js'
 import { normalizeColorLiterals, stringify, validateBlock } from '../model.js'
 
-export function createBlockService({ blocks, transaction, validateCategory, replaceEmbeddedImages }) {
+export function createBlockService({ blocks, transaction, validateCategory, replaceEmbeddedImages, attachImages = async () => {} }) {
   const get = async (id, user, edit = false, tx, lock = false) => requireLibraryAccess(await blocks.find(id, tx, lock), user, edit)
   return {
     list: async user => (await blocks.list(user)).map(block => ({ ...block, permissions: libraryPermissions(block, user) })),
@@ -15,6 +15,7 @@ export function createBlockService({ blocks, transaction, validateCategory, repl
       await transaction(async tx => {
         await validateCategory(block, tx, false, ownerId)
         await blocks.create(id, block, tx, ownerId)
+        await attachImages(yaml, 'block', id, user, tx)
         await blocks.addVersion(id, 1, yaml, user.id, summary, tx)
       })
       return { id, version: 1 }
@@ -43,7 +44,7 @@ export function createBlockService({ blocks, transaction, validateCategory, repl
       if (!source) error(404, 'Versión no encontrada')
       const version = await transaction(async tx => {
         const current = await get(id, user, true, tx, true)
-        let yaml = normalizeColorLiterals(await replaceEmbeddedImages(source.yaml, 'block', tx))
+        let yaml = normalizeColorLiterals(await replaceEmbeddedImages(source.yaml, 'block', tx, { ownerId: current.owner_id, catalog: !current.owner_id }))
         let block = validateBlock(yaml)
         if (input.category) {
           block.category = input.category
@@ -56,6 +57,7 @@ export function createBlockService({ blocks, transaction, validateCategory, repl
         const saved = await blocks.save(id, expected, block, tx)
         if (!saved) error(409, 'El bloque cambió; recarga antes de restaurar')
         const version = saved.latest_version
+        await attachImages(yaml, 'block', id, user, tx)
         await blocks.addVersion(id, version, yaml, user.id, `Restaurada versión ${wanted}`, tx)
         return version
       })
@@ -71,6 +73,7 @@ export function createBlockService({ blocks, transaction, validateCategory, repl
         const saved = await blocks.save(id, expected, block, tx)
         if (!saved) error(409, 'El bloque cambió; recarga antes de guardar')
         const version = saved.latest_version
+        await attachImages(yaml, 'block', id, user, tx)
         await blocks.addVersion(id, version, yaml, user.id, input.summary || 'Bloque actualizado', tx)
         return version
       })

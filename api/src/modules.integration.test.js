@@ -195,12 +195,13 @@ test('modular API preserves authenticated contracts and transactional behavior (
     assert.equal((await ownerRequest('/blocks')).body.some(b => b.id === blockId), false)
   })
 
-  await t.test('gallery image content remains public while creation/deletion require the original roles', async () => {
+  await t.test('gallery image content requires ownership while creation/deletion require the original roles', async () => {
     const body = { name: 'Pixel ' + suffix, mime: 'image/png', data: png }
     assert.equal((await request('/images', { method: 'POST', cookie: viewer.cookie, body })).status, 403)
     assert.equal((await ownerRequest('/images', { method: 'POST', body: { ...body, data: 'invalid' } })).status, 400)
     const created = await ownerRequest('/images', { method: 'POST', body }); assert.equal(created.status, 201)
-    const result = await request('/images/' + created.body.id + '/content')
+    assert.equal((await request('/images/' + created.body.id + '/content')).status, 404)
+    const result = await ownerRequest('/images/' + created.body.id + '/content')
     assert.equal(result.status, 200); assert.deepEqual(result.body, Buffer.from(png, 'base64'))
     assert.equal(result.headers.get('x-content-type-options'), 'nosniff')
     assert.equal((await request('/images')).status, 401)

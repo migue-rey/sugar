@@ -23,3 +23,7 @@ Antes de cada actualización se crea un `pg_dump` en `backups/`. El despliegue e
 Para volver a un commit ya publicado, usar la clave de despliegue con `ssh ... 'deploy <SHA>'` y suministrar por entrada estándar un token GHCR con lectura de los paquetes. Para volver a desplegar el `main` actual, ejecutar el workflow manualmente. El registro `release.env` identifica la versión activa.
 
 Los límites de memoria son 512 MiB para PostgreSQL, 384 MiB para la API y 128 MiB para Nginx. Los logs rotan a tres archivos de 10 MiB por servicio. Las imágenes se construyen en GitHub, no en la VPS de 1 vCPU.
+
+### Enlaces privados y registros
+
+Al liberar la protección de imágenes (#5), actualizar la configuración del proxy existente usando `deploy/nginx.conf`, conservando los ajustes HTTPS de Certbot. El formato `sugar_safe` omite query strings y Referer, y oculta los tokens del path `/api/shared/`. Comprobar `nginx -t` antes de recargar. No añadir caché/CDN a imágenes o respuestas compartidas: la API exige `private, no-store`. La reconstrucción de imágenes Docker no reemplaza por sí sola la configuración Nginx del host.

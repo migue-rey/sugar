@@ -5,7 +5,7 @@ import { requireAdmin, requireEdit, requireProjectAccess, projectPermissions } f
 import { normalizeColorLiterals, stringify, validateProject } from '../model.js'
 import { repositorySettings } from './validation.js'
 
-export function createProjectService({ projects, transaction, enqueue, categoryIcons, replaceEmbeddedImages }) {
+export function createProjectService({ projects, transaction, enqueue, categoryIcons, replaceEmbeddedImages, attachImages = async () => {} }) {
   const get = async (id, user, options, tx, lock = false) => {
     const project = requireProjectAccess(await projects.find(id, user.id, tx, lock), user, options)
     return { ...project, permissions: projectPermissions(project, user) }
@@ -57,6 +57,7 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
       const project = validateProject(yaml), id = crypto.randomUUID()
       await transaction(async tx => {
         await projects.create(id, project.name, yaml, user.id, tx)
+        await attachImages(yaml, 'project', id, user, tx)
         await projects.addRevision(id, 1, yaml, user.id, input.summary || 'Proyecto creado', tx)
       })
       return { id, revision: 1 }
@@ -87,8 +88,8 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
     async share(id, user) {
       const project = await get(id, user, { ownerOnly: true })
       if (project.visibility === 'public') return { path: `/?public=${project.id}` }
-      const token = await projects.share(project.id, crypto.randomBytes(32).toString('base64url'))
-      return { path: `/?share=${token}` }
+      const link = await projects.share(project.id, crypto.randomBytes(32).toString('base64url'))
+      return { path: `/?share=${link.share_token}`, expiresAt: link.share_expires_at }
     },
     async revokeShare(id, user) { await get(id, user, { ownerOnly: true }); await projects.revokeShare(id) },
     async save(id, user, input) {
@@ -100,6 +101,7 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
         const saved = await projects.save(id, expected, project.name, yaml, tx)
         if (!saved) error(409, 'El proyecto cambió; recarga antes de guardar')
         const revision = saved.revision
+        await attachImages(yaml, 'project', id, user, tx)
         await projects.addRevision(id, revision, yaml, user.id, input.summary || 'Proyecto actualizado', tx)
         if (current.sync_repository) await enqueue('project', id, revision, yaml, tx, { repository: current.sync_repository, branch: current.sync_branch })
         return revision
@@ -131,11 +133,12 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
       if (!source) error(404, 'Revisión no encontrada')
       const revision = await transaction(async tx => {
         const current = await get(id, user, { edit: true }, tx, true)
-        const yaml = normalizeColorLiterals(await replaceEmbeddedImages(source.yaml, 'project', tx))
+        const yaml = normalizeColorLiterals(await replaceEmbeddedImages(source.yaml, 'project', tx, { ownerId: user.id }))
         const doc = validateProject(yaml)
         const saved = await projects.save(id, expected, doc.name, yaml, tx)
         if (!saved) error(409, 'El proyecto cambió; recarga antes de restaurar')
         const revision = saved.revision
+        await attachImages(yaml, 'project', id, user, tx)
         await projects.addRevision(id, revision, yaml, user.id, `Restaurada revisión ${wanted}`, tx)
         if (current.sync_repository) await enqueue('project', id, revision, yaml, tx, { repository: current.sync_repository, branch: current.sync_branch })
         return revision

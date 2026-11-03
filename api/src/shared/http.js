@@ -12,3 +12,8 @@ export function errorHandler(err, _req, res, _next) {
   if (status === 500) console.error(err)
   res.status(status).json({ error: status === 500 ? 'Error interno' : err.message })
 }
+
+export const noStore = (_req, res, next) => {
+  res.set('Cache-Control', 'private, no-store').set('Pragma', 'no-cache').set('Referrer-Policy', 'no-referrer').vary('Cookie')
+  next()
+}

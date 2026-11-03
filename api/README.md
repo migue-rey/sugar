@@ -25,7 +25,7 @@ El backend sigue usando Express y PostgreSQL. Las rutas se organizan por funcion
 
 Las rutas convierten entrada/salida HTTP; los servicios principales reciben identificadores, datos y usuarios normales, nunca objetos `req`/`res`. Los repositorios reciben una función de consulta y aceptan `tx` en los métodos que escriben dentro de una transacción. Las funciones existentes de categorías, imágenes, IA y GitHub se reutilizan para evitar capas que solo reenvíen llamadas.
 
-Para una operación nueva, añadir la política/regla al servicio, las consultas al repositorio de su funcionalidad y el adaptador a `routes.js`; registrar el módulo en `createApp` si es una funcionalidad nueva. No importar `server.js` desde módulos de aplicación o pruebas. El registro público va antes del middleware de sesión; el resto después. El contenido de imágenes continúa siendo público, mientras la administración de la galería requiere sesión y los roles existentes.
+Para una operación nueva, añadir la política/regla al servicio, las consultas al repositorio de su funcionalidad y el adaptador a `routes.js`; registrar el módulo en `createApp` si es una funcionalidad nueva. No importar `server.js` desde módulos de aplicación o pruebas. El registro público va antes del middleware de sesión; el resto después. El contenido de imágenes comprueba acceso incluso en rutas anteriores al middleware de sesión; la galería requiere autenticación y aplica el ámbito personal o compartido.
 
 ## Biblioteca personal y catálogo compartido
 
@@ -36,6 +36,22 @@ Para una operación nueva, añadir la política/regla al servicio, las consultas
 Las categorías personales admiten nombres repetidos entre cuentas y slugs únicos; sus hijos pertenecen al mismo propietario. Un bloque personal puede usar categorías propias o compartidas; un bloque del catálogo solo categorías compartidas. `/api/validate` admite `blockId` para resolver el propietario al editar un bloque existente. Los proyectos conservan sus snapshots y los iconos públicos siguen limitados a los slugs utilizados.
 
 `library/migration.js` agrega propiedad e índices mediante una transacción idempotente. Los registros anteriores permanecen en el catálogo compartido, conservando autores, YAML, slugs, versiones y referencias. La integración prueba esta migración en un esquema temporal aislado y verifica permisos entre dos cuentas, restauraciones y compatibilidad de proyectos.
+
+## Imágenes y adjuntos de diagramas
+
+El único adjunto subido que admite actualmente la aplicación es una imagen PNG/JPEG/WebP; los datasheets y otros enlaces externos siguen siendo URLs y no se descargan al servidor. `images/service.js` valida acceso y registra las asociaciones de `block.image` en `image_references`, dentro de la misma transacción que el bloque/proyecto y su historial. Adivinar un ID ajeno no permite asociarlo a otro recurso. No se altera el YAML ni se guardan credenciales de enlace en él.
+
+- `POST /api/images` acepta `scope: 'personal' | 'catalog'`, predeterminado personal incluso para Admin. El propietario se deriva de la sesión. Solo Admin crea imágenes de catálogo. Las imágenes antiguas conservan bytes/ID/URL y reciben su `created_by` como propietario; las que no tienen autor quedan accesibles a Admin y a los lectores de recursos que las referencian, sin publicación global automática.
+- `GET /api/images` lista las imágenes propias y de catálogo; Admin ve todas. La pertenencia a un proyecto no enumera la galería de su autor.
+- `GET /api/images/:id/content` permite al propietario, Admin y lectores de bloques/proyectos activos consultar imágenes referenciadas, incluido historial autenticado. Las imágenes de catálogo requieren sesión. Anónimos solo acceden a imágenes **actualmente** usadas por un proyecto público; no a imágenes exclusivas de revisiones antiguas.
+- `GET /api/shared/:token/images/:id/content` exige un enlace vigente y una referencia en el diagrama actual de ese proyecto. Nunca amplía acceso a otras imágenes del propietario ni al historial. El frontend resuelve estas rutas solo al presentar la vista compartida; los YAML conservan rutas canónicas.
+- Los enlaces privados tienen siete días de vigencia. Solicitar uno vigente conserva token y fecha; solicitar uno vencido genera ambos de nuevo. Revocar, cambiar visibilidad o archivar el proyecto anula los accesos correspondientes. La migración asigna siete días desde la actualización a enlaces antiguos sin vencimiento.
+
+**Reutilización:** guardar una imagen a la que se tiene acceso legítimo en otro bloque/proyecto crea una asociación independiente. Revocar el recurso original no elimina esa copia ni el acceso por otras asociaciones válidas. Archivar la imagen bloquea todos sus accesos. La eliminación por propietario se trata en #19.
+
+**Caché y revocación:** bytes, respuestas públicas/compartidas y galería indican `Cache-Control: private, no-store`, `Pragma: no-cache` y `Vary: Cookie`. Los bytes no emiten ETag ni respuestas 304; cada petición verifica permisos y vigencia. Las páginas omiten Referer para no filtrar tokens a enlaces externos. La revocación se aplica a nuevas peticiones; no borra imágenes ya mostradas, descargadas o copiadas. Antes de esta entrega se permitía caché pública de una hora: copias servidas por versiones antiguas pueden sobrevivir ese plazo y no pueden retirarse remotamente. Proxies/CDN deben respetar `no-store` y no añadir caché a estas rutas. Las plantillas Nginx de web y despliegue omiten query strings/Referer y ocultan tokens de `/api/shared/` en access logs. Al liberar, aplicar también la plantilla del proxy externo; esta rama no modifica la VPS.
+
+`images/migration.js` agrega propiedad, referencias y vencimiento mediante una migración transaccional, idempotente y serializada. Reconstruye asociaciones desde revisiones sin modificarlas. Se prueban datos heredados, aislamiento entre cuentas, intentos de asociar IDs ajenos, lectores/miembros, historial, publicación, reutilización, revocación, vencimiento y rollback de asociaciones junto con historial.
 
 ## Límites transaccionales
 

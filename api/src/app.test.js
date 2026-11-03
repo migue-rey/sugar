@@ -50,7 +50,7 @@ test('HTTP contracts retain public routes, session cookies, authentication and e
   assert.deepEqual(await res.json(), { id: 'p', name: project.name, yaml: project.yaml, revision: 1, creator: user.email, visibility: 'public', category_icons: {} })
   res = await request('/public/projects/missing'); assert.equal(res.status, 404); assert.deepEqual(await res.json(), { error: 'Proyecto público no encontrado' })
   res = await request('/shared/invalid'); assert.equal(res.status, 404)
-  res = await request('/images/i/content'); assert.equal(res.headers.get('x-content-type-options'), 'nosniff'); assert.equal(res.headers.get('cache-control'), 'public, max-age=3600')
+  res = await request('/images/i/content'); assert.equal(res.status, 404); assert.equal(res.headers.get('cache-control'), 'private, no-store')
   res = await request('/images'); assert.equal(res.status, 401)
   res = await request('/login', { email: 'missing', password: 'wrong' }); assert.equal(res.status, 401); assert.deepEqual(await res.json(), { error: 'Credenciales inválidas' })
   res = await request('/login', { email: 'ADMIN@LOCAL', password: 'local-test-password' }); assert.equal(res.status, 200)

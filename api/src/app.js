@@ -34,17 +34,17 @@ export function createApp({ q, transaction, secret, enqueue, syncOne, callProvid
 
   const userRepository = createUserRepository(q)
   const auth = createAuthService({ users: userRepository, secret })
+  const images = createImageService(createImageRepository(q))
   const projects = createProjectService({
     projects: createProjectRepository(q), transaction, enqueue,
-    categoryIcons: yaml => projectCategoryIcons(yaml, q), replaceEmbeddedImages,
+    categoryIcons: yaml => projectCategoryIcons(yaml, q), replaceEmbeddedImages, attachImages: images.attach,
   })
-  const blocks = createBlockService({ blocks: createBlockRepository(q), transaction, validateCategory, replaceEmbeddedImages })
-  const images = createImageService(createImageRepository(q))
+  const blocks = createBlockService({ blocks: createBlockRepository(q), transaction, validateCategory, replaceEmbeddedImages, attachImages: images.attach })
   const sync = createProjectSyncService({ query: q, projects, synchronize: syncOne })
 
   // Public endpoints must precede the session middleware, just as before.
   app.get('/api/health', (_, res) => res.json({ ok: true }))
-  registerImageContentRoute(app, images)
+  registerImageContentRoute(app, images, auth)
   registerPublicProjectRoutes(app, projects)
   registerAuthRoutes(app, { auth, sessionSecure })
   app.use('/api', authenticate(auth))

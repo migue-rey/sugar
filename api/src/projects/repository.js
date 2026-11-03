@@ -10,7 +10,7 @@ export function createProjectRepository(query) {
       return (await execute(`SELECT ${fields},m.role AS member_role ${join} LEFT JOIN project_members m ON m.project_id=p.id AND m.user_id=$2 WHERE p.id=$1 AND p.deleted_at IS NULL`, [id, userId])).rows[0]
     },
     async public(id) { return (await query(`SELECT ${fields} ${join} WHERE p.id=$1 AND p.visibility='public' AND p.deleted_at IS NULL`, [id])).rows[0] },
-    async shared(token) { return (await query(`SELECT ${fields} ${join} WHERE p.share_token=$1 AND p.deleted_at IS NULL`, [token])).rows[0] },
+    async shared(token) { return (await query(`SELECT ${fields} ${join} WHERE p.share_token=$1 AND p.share_expires_at>now() AND p.deleted_at IS NULL`, [token])).rows[0] },
     async list(user) {
       return (await query(`SELECT p.id,p.name,p.revision,p.created_at,p.visibility,p.created_by,p.sync_repository,p.sync_branch,p.settings_version,u.email AS creator ${join} LEFT JOIN project_members m ON m.project_id=p.id AND m.user_id=$1 WHERE p.deleted_at IS NULL AND (p.visibility='public' OR p.created_by=$1 OR $2='Admin' OR m.user_id IS NOT NULL) ORDER BY p.name`, [user.id, user.role])).rows
     },
@@ -34,7 +34,7 @@ export function createProjectRepository(query) {
       return (await tx('UPDATE projects SET name=$3,yaml=$4,revision=revision+1 WHERE id=$1 AND revision=$2 AND deleted_at IS NULL RETURNING revision', [id, expected, name, yaml])).rows[0]
     },
     async settings(id, expected, visibility, repository, branch, tx) {
-      return (await tx('UPDATE projects SET share_token=CASE WHEN visibility IS DISTINCT FROM $3 THEN NULL ELSE share_token END,visibility=$3,sync_repository=$4,sync_branch=$5,settings_version=settings_version+1 WHERE id=$1 AND settings_version=$2 AND deleted_at IS NULL RETURNING revision,yaml', [id, expected, visibility, repository, branch])).rows[0]
+      return (await tx('UPDATE projects SET share_expires_at=CASE WHEN visibility IS DISTINCT FROM $3 THEN NULL ELSE share_expires_at END,share_token=CASE WHEN visibility IS DISTINCT FROM $3 THEN NULL ELSE share_token END,visibility=$3,sync_repository=$4,sync_branch=$5,settings_version=settings_version+1 WHERE id=$1 AND settings_version=$2 AND deleted_at IS NULL RETURNING revision,yaml', [id, expected, visibility, repository, branch])).rows[0]
     },
     async addSettingsHistory(id, authorId, before, after, tx) {
       await tx('INSERT INTO project_settings_history(project_id,author_id,before,after) VALUES($1,$2,$3::jsonb,$4::jsonb)', [id, authorId, JSON.stringify(before), JSON.stringify(after)])
@@ -46,9 +46,9 @@ export function createProjectRepository(query) {
       return (await query('SELECT h.before,h.after,h.created_at,u.email AS author FROM project_settings_history h LEFT JOIN users u ON u.id=h.author_id WHERE h.project_id=$1 ORDER BY h.id DESC', [id])).rows
     },
     async share(id, token) {
-      return (await query('UPDATE projects SET share_token=COALESCE(share_token,$2) WHERE id=$1 AND deleted_at IS NULL RETURNING share_token', [id, token])).rows[0].share_token
+      return (await query(`UPDATE projects SET share_token=CASE WHEN share_expires_at>now() AND share_token IS NOT NULL THEN share_token ELSE $2 END,share_expires_at=CASE WHEN share_expires_at>now() AND share_token IS NOT NULL THEN share_expires_at ELSE now()+interval '7 days' END WHERE id=$1 AND deleted_at IS NULL RETURNING share_token,share_expires_at`, [id, token])).rows[0]
     },
-    async revokeShare(id) { await query('UPDATE projects SET share_token=NULL WHERE id=$1', [id]) },
+    async revokeShare(id) { await query('UPDATE projects SET share_token=NULL,share_expires_at=NULL WHERE id=$1', [id]) },
     async archive(id) { await query('UPDATE projects SET deleted_at=now() WHERE id=$1', [id]) },
     async revisions(id) {
       return (await query('SELECT r.revision,r.summary,r.created_at,u.email AS author FROM project_revisions r LEFT JOIN users u ON u.id=r.author_id WHERE project_id=$1 ORDER BY revision DESC', [id])).rows

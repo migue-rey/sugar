@@ -1,3 +1,5 @@
+import { migrateImageAccess } from './images/migration.js'
+import { imageIds, recordImageReferences } from './images/references.js'
 import { initAiDb } from './ai.js'
 import { migrateLibraryOwnership } from './library/migration.js'
 import pg from 'pg'
@@ -68,23 +70,26 @@ export async function initDb() {
     console.log(`Initial admin: ${email} / ${password}`)
     if (!process.env.ADMIN_PASSWORD) console.log('Save this generated password now; it is displayed only on first boot.')
   }
+  await migrateImageAccess(transaction)
   // Convert current documents once; historical revisions remain intact for audit.
-  for (const row of (await q("SELECT id,revision,yaml,sync_repository,sync_branch FROM projects WHERE deleted_at IS NULL AND yaml LIKE '%data:image/%'")).rows) {
+  for (const row of (await q("SELECT id,revision,yaml,sync_repository,sync_branch,created_by FROM projects WHERE deleted_at IS NULL AND yaml LIKE '%data:image/%'")).rows) {
     await transaction(async tx => {
-      const yaml = await replaceEmbeddedImages(row.yaml, 'project', tx)
+      const yaml = await replaceEmbeddedImages(row.yaml, 'project', tx, { ownerId: row.created_by })
       if (yaml === row.yaml) return
       const revision = row.revision + 1
       await tx('UPDATE projects SET yaml=$2,revision=$3 WHERE id=$1', [row.id, yaml, revision])
       await tx('INSERT INTO project_revisions(project_id,revision,yaml,summary) VALUES($1,$2,$3,$4)', [row.id, revision, yaml, 'Imágenes trasladadas a la galería'])
+      await recordImageReferences(tx, 'project', row.id, imageIds(yaml, 'project'))
     })
   }
-  for (const row of (await q("SELECT b.id,b.latest_version,v.yaml FROM blocks b JOIN block_versions v ON v.block_id=b.id AND v.version=b.latest_version WHERE b.deleted_at IS NULL AND v.yaml LIKE '%data:image/%'")).rows) {
+  for (const row of (await q("SELECT b.id,b.latest_version,b.owner_id,v.yaml FROM blocks b JOIN block_versions v ON v.block_id=b.id AND v.version=b.latest_version WHERE b.deleted_at IS NULL AND v.yaml LIKE '%data:image/%'")).rows) {
     await transaction(async tx => {
-      const yaml = await replaceEmbeddedImages(row.yaml, 'block', tx)
+      const yaml = await replaceEmbeddedImages(row.yaml, 'block', tx, { ownerId: row.owner_id, catalog: !row.owner_id })
       if (yaml === row.yaml) return
       const version = row.latest_version + 1
       await tx('UPDATE blocks SET latest_version=$2 WHERE id=$1', [row.id, version])
       await tx('INSERT INTO block_versions(block_id,version,yaml,summary) VALUES($1,$2,$3,$4)', [row.id, version, yaml, 'Imagen trasladada a la galería'])
+      await recordImageReferences(tx, 'block', row.id, imageIds(yaml, 'block'))
     })
   }
   const examples = await q('SELECT count(*)::int AS n FROM blocks')
