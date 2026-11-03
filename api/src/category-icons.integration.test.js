@@ -35,8 +35,8 @@ test('category icons with real authentication, database and shared project respo
   for(const role of ['dev','view']) {
     await request('/users',{method:'POST',cookie,body:{email:role+'_'+suffix+'@local',password:'local-user-password',role}})
     const user=await request('/login',{method:'POST',body:{email:role+'_'+suffix+'@local',password:'local-user-password'}});assert.equal(user.body.theme,'light')
-    assert.equal((await request('/categories',{method:'POST',cookie:user.cookie,body:{name:'Forbidden',icon:'power'}})).status,403)
-    assert.equal((await request('/categories/'+root.body.id,{method:'PATCH',cookie:user.cookie,body:{name:'Forbidden',icon:'power'}})).status,403)
+    assert.equal((await request('/categories',{method:'POST',cookie:user.cookie,body:{name:'Forbidden',icon:'power',scope:'catalog'}})).status,403)
+    assert.equal((await request('/categories/'+root.body.id,{method:'PATCH',cookie:user.cookie,body:{name:'Forbidden',icon:'power',scope:'catalog'}})).status,403)
   }
   const ownIcon=await request('/categories/'+child.body.id,{method:'PATCH',cookie,body:{name:'Test sources',icon:'light'}});assert.equal(ownIcon.body.icon,'light')
   assert.equal((await request('/public/projects/'+project.body.id)).body.category_icons[child.body.slug],'light')

@@ -1,10 +1,13 @@
 export function createBlockRepository(query) {
   return {
-    async list() {
-      return (await query('SELECT b.id,b.name,b.latest_version,v.yaml,v.created_at FROM blocks b JOIN block_versions v ON v.block_id=b.id AND v.version=b.latest_version WHERE b.deleted_at IS NULL ORDER BY b.name')).rows
+    async list(user) {
+      return (await query(`SELECT b.id,b.name,b.latest_version,b.owner_id,v.yaml,v.created_at FROM blocks b JOIN block_versions v ON v.block_id=b.id AND v.version=b.latest_version WHERE b.deleted_at IS NULL AND (b.owner_id IS NULL OR b.owner_id=$1 OR $2='Admin') ORDER BY b.name`, [user.id, user.role])).rows
     },
-    async create(id, block, tx) {
-      await tx('INSERT INTO blocks(id,name,latest_version,category_slug,subcategory_slug) VALUES($1,$2,1,$3,$4)', [id, block.name, block.category, block.subcategory || null])
+    async find(id, execute = query, lock = false) {
+      return (await execute(`SELECT id,owner_id FROM blocks WHERE id=$1 AND deleted_at IS NULL${lock ? ' FOR UPDATE' : ''}`, [id])).rows[0]
+    },
+    async create(id, block, tx, ownerId) {
+      await tx('INSERT INTO blocks(id,name,latest_version,category_slug,subcategory_slug,owner_id) VALUES($1,$2,1,$3,$4,$5)', [id, block.name, block.category, block.subcategory || null, ownerId])
     },
     async addVersion(id, version, yaml, authorId, summary, tx) {
       await tx('INSERT INTO block_versions(block_id,version,yaml,author_id,summary) VALUES($1,$2,$3,$4,$5)', [id, version, yaml, authorId, summary])
@@ -21,6 +24,6 @@ export function createBlockRepository(query) {
     async save(id, expected, block, tx) {
       return (await tx('UPDATE blocks SET name=$3,category_slug=$4,subcategory_slug=$5,latest_version=latest_version+1 WHERE id=$1 AND latest_version=$2 AND deleted_at IS NULL RETURNING latest_version', [id, expected, block.name, block.category || null, block.subcategory || null])).rows[0]
     },
-    async archive(id) { await query('UPDATE blocks SET deleted_at=now() WHERE id=$1', [id]) },
+    async archive(id, tx = query) { await tx('UPDATE blocks SET deleted_at=now() WHERE id=$1', [id]) },
   }
 }

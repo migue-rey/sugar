@@ -1,4 +1,5 @@
 import { initAiDb } from './ai.js'
+import { migrateLibraryOwnership } from './library/migration.js'
 import pg from 'pg'
 import bcrypt from 'bcryptjs'
 import crypto from 'node:crypto'
@@ -36,7 +37,7 @@ export async function initDb() {
   await q(`CREATE TABLE IF NOT EXISTS block_categories (id uuid PRIMARY KEY, slug text UNIQUE NOT NULL, name text NOT NULL, name_key text NOT NULL, parent_id uuid REFERENCES block_categories(id), deleted_at timestamptz)`)
   await q(`ALTER TABLE block_categories ADD COLUMN IF NOT EXISTS icon text`)
   await q(`UPDATE block_categories SET icon=CASE slug WHEN 'alimentacion' THEN 'power' WHEN 'controladores' THEN 'cpu' WHEN 'sensores' THEN 'sensor' ELSE 'cube' END WHERE parent_id IS NULL AND icon IS NULL`)
-  await q(`CREATE UNIQUE INDEX IF NOT EXISTS block_categories_sibling_name ON block_categories (coalesce(parent_id,'00000000-0000-0000-0000-000000000000'::uuid),name_key) WHERE deleted_at IS NULL`)
+  await migrateLibraryOwnership(transaction)
   await q(`ALTER TABLE blocks ADD COLUMN IF NOT EXISTS category_slug text`)
   await q(`ALTER TABLE blocks ADD COLUMN IF NOT EXISTS subcategory_slug text`)
   await q(`CREATE TABLE IF NOT EXISTS block_versions (block_id uuid NOT NULL REFERENCES blocks(id), version integer NOT NULL, yaml text NOT NULL, author_id uuid REFERENCES users(id), summary text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(block_id, version))`)

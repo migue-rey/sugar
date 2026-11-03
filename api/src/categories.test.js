@@ -23,7 +23,7 @@ test('prevents archiving categories that still contain active blocks', async () 
     if (sql.startsWith('SELECT 1 FROM blocks')) return { rows: [{ '?column?': 1 }], rowCount: 1 }
     throw Error('Unexpected query')
   }
-  await assert.rejects(archiveCategory(root.id, query), /Reasigna primero/)
+  await assert.rejects(archiveCategory(root.id, query, {id:'admin',role:'Admin'}), /Reasigna primero/)
 })
 
 test('category icons support root defaults, child inheritance and reject unknown icons', async () => {
@@ -44,8 +44,8 @@ test('creating a category persists its icon and a child can inherit', async () =
     if(sql.startsWith('INSERT')) { writes.push(args);return {rows:[{id:args[0],slug:args[1],name:args[2],parent_id:args[4],icon:args[5]}]} }
     return {rows:[],rowCount:0}
   }
-  assert.equal((await createCategory('Power',null,query,'power')).icon,'power')
-  assert.equal((await createCategory('Sources','parent',query,null)).icon,null)
+  assert.equal((await createCategory('Power',null,query,'power',{id:'admin',role:'Admin'})).icon,'power')
+  assert.equal((await createCategory('Sources','parent',query,null,{id:'admin',role:'Admin'})).icon,null)
   assert.equal(writes[0][5],'power')
 })
 test('renaming preserves a category icon; changing its icon preserves the stable slug', async () => {
@@ -55,10 +55,10 @@ test('renaming preserves a category icon; changing its icon preserves the stable
     if(sql.startsWith('UPDATE')) return {rows:[{id:args[0],slug:'power',name:args[1],icon:args[3]}]}
     return {rows:[],rowCount:0}
   }
-  assert.equal((await renameCategory('root','Energy',query)).icon,'power')
-  const changed=await renameCategory('root','Energy',query,'battery')
+  assert.equal((await renameCategory('root','Energy',query,undefined,{id:'admin',role:'Admin'})).icon,'power')
+  const changed=await renameCategory('root','Energy',query,'battery',{id:'admin',role:'Admin'})
   assert.equal(changed.icon,'battery'); assert.equal(changed.slug,'power')
-  await assert.rejects(renameCategory('root','Energy',query,null),/icono válido/)
+  await assert.rejects(renameCategory('root','Energy',query,null,{id:'admin',role:'Admin'}),/icono válido/)
 })
 test('public icon metadata queries only the category slugs used by the project', async () => {
   const { projectCategoryIcons }=await import('./categories.js')

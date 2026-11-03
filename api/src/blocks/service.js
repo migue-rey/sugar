@@ -1,29 +1,33 @@
 import crypto from 'node:crypto'
 import { createPatch } from 'diff'
 import { error, requiredText } from '../shared/http.js'
-import { requireAdmin, requireEdit } from '../auth/policies.js'
+import { requireAdmin } from '../auth/policies.js'
+import { libraryOwner, libraryPermissions, requireLibraryAccess } from '../library/access.js'
 import { normalizeColorLiterals, stringify, validateBlock } from '../model.js'
 
 export function createBlockService({ blocks, transaction, validateCategory, replaceEmbeddedImages }) {
+  const get = async (id, user, edit = false, tx, lock = false) => requireLibraryAccess(await blocks.find(id, tx, lock), user, edit)
   return {
-    list: () => blocks.list(),
+    list: async user => (await blocks.list(user)).map(block => ({ ...block, permissions: libraryPermissions(block, user) })),
     async create(user, input) {
-      requireEdit(user)
+      const ownerId = libraryOwner(user, input.scope)
       const yaml = normalizeColorLiterals(requiredText(input.yaml, 'YAML')), block = validateBlock(yaml), id = crypto.randomUUID(), summary = input.summary || 'Bloque creado'
       await transaction(async tx => {
-        await validateCategory(block, tx)
-        await blocks.create(id, block, tx)
+        await validateCategory(block, tx, false, ownerId)
+        await blocks.create(id, block, tx, ownerId)
         await blocks.addVersion(id, 1, yaml, user.id, summary, tx)
       })
       return { id, version: 1 }
     },
-    versions: id => blocks.versions(id),
-    async version(id, version) {
+    versions: async (id, user) => { await get(id, user); return blocks.versions(id) },
+    async version(id, version, user) {
+      await get(id, user)
       const saved = await blocks.version(id, version)
       if (!saved) error(404, 'Versión no encontrada')
       return saved.yaml
     },
-    async diff(id, input) {
+    async diff(id, input, user) {
+      await get(id, user)
       const a = Number(input.from), b = Number(input.to)
       if (!Number.isInteger(a) || !Number.isInteger(b)) error(400, 'Selecciona dos versiones')
       const rows = await blocks.comparison(id, a, b)
@@ -32,12 +36,13 @@ export function createBlockService({ blocks, transaction, validateCategory, repl
       return createPatch('block.yaml', one.yaml, two.yaml, `version ${a}`, `version ${b}`)
     },
     async restore(id, user, input) {
-      requireEdit(user)
+      await get(id, user, true)
       const wanted = Number(input.version), expected = Number(input.expectedVersion)
       if (!Number.isInteger(wanted) || !Number.isInteger(expected)) error(400, 'Versión inválida')
       const source = await blocks.version(id, wanted)
       if (!source) error(404, 'Versión no encontrada')
       const version = await transaction(async tx => {
+        const current = await get(id, user, true, tx, true)
         let yaml = normalizeColorLiterals(await replaceEmbeddedImages(source.yaml, 'block', tx))
         let block = validateBlock(yaml)
         if (input.category) {
@@ -47,7 +52,7 @@ export function createBlockService({ blocks, transaction, validateCategory, repl
           yaml = stringify(block)
           block = validateBlock(yaml)
         }
-        await validateCategory(block, tx, !block.category)
+        await validateCategory(block, tx, !block.category, current.owner_id)
         const saved = await blocks.save(id, expected, block, tx)
         if (!saved) error(409, 'El bloque cambió; recarga antes de restaurar')
         const version = saved.latest_version
@@ -57,11 +62,12 @@ export function createBlockService({ blocks, transaction, validateCategory, repl
       return { version }
     },
     async save(id, user, input) {
-      requireEdit(user)
+      await get(id, user, true)
       const yaml = normalizeColorLiterals(requiredText(input.yaml, 'YAML')), block = validateBlock(yaml), expected = Number(input.expectedVersion)
       if (!Number.isInteger(expected) || expected < 1) error(400, 'Versión esperada inválida')
       const version = await transaction(async tx => {
-        await validateCategory(block, tx)
+        const current = await get(id, user, true, tx, true)
+        await validateCategory(block, tx, false, current.owner_id)
         const saved = await blocks.save(id, expected, block, tx)
         if (!saved) error(409, 'El bloque cambió; recarga antes de guardar')
         const version = saved.latest_version
@@ -70,6 +76,6 @@ export function createBlockService({ blocks, transaction, validateCategory, repl
       })
       return { version }
     },
-    async archive(id, user) { requireAdmin(user); await blocks.archive(id) },
+    async archive(id, user) { requireAdmin(user); await get(id, user, true); await transaction(async tx => { await get(id, user, true, tx, true); await blocks.archive(id, tx) }) },
   }
 }

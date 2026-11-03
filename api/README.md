@@ -1,6 +1,6 @@
 # Arquitectura del API
 
-El backend sigue usando Express y PostgreSQL. La refactorización no cambia URLs, métodos, formatos de respuesta, permisos ni esquema de datos.
+El backend sigue usando Express y PostgreSQL. Las rutas se organizan por funcionalidad y comparten políticas de acceso explícitas.
 
 ## Arranque y composición
 
@@ -26,6 +26,16 @@ El backend sigue usando Express y PostgreSQL. La refactorización no cambia URLs
 Las rutas convierten entrada/salida HTTP; los servicios principales reciben identificadores, datos y usuarios normales, nunca objetos `req`/`res`. Los repositorios reciben una función de consulta y aceptan `tx` en los métodos que escriben dentro de una transacción. Las funciones existentes de categorías, imágenes, IA y GitHub se reutilizan para evitar capas que solo reenvíen llamadas.
 
 Para una operación nueva, añadir la política/regla al servicio, las consultas al repositorio de su funcionalidad y el adaptador a `routes.js`; registrar el módulo en `createApp` si es una funcionalidad nueva. No importar `server.js` desde módulos de aplicación o pruebas. El registro público va antes del middleware de sesión; el resto después. El contenido de imágenes continúa siendo público, mientras la administración de la galería requiere sesión y los roles existentes.
+
+## Biblioteca personal y catálogo compartido
+
+`library/access.js` centraliza los permisos de bloques y categorías. `owner_id = NULL` identifica el catálogo compartido: todos los usuarios autenticados pueden leerlo y solo `Admin` puede mantenerlo. Un propietario con rol `dev` puede leer y modificar sus recursos personales; otras cuentas reciben 404 y no los ven en listados. `Admin` conserva acceso de administración. La eliminación de bloques sigue reservada a `Admin`; la papelera por propietario pertenece al issue #19.
+
+`POST /api/blocks` y `POST /api/categories` aceptan `scope: 'personal' | 'catalog'`. El valor predeterminado es personal para `dev` y catálogo para `Admin`. El servidor obtiene el propietario de la sesión; nunca confía en un `owner_id` del cliente. El ámbito no se cambia al editar. Los listados incluyen `owner_id` y `permissions: { scope, canEdit }`. Versiones, YAML histórico, diferencias y restauraciones verifican el mismo acceso.
+
+Las categorías personales admiten nombres repetidos entre cuentas y slugs únicos; sus hijos pertenecen al mismo propietario. Un bloque personal puede usar categorías propias o compartidas; un bloque del catálogo solo categorías compartidas. `/api/validate` admite `blockId` para resolver el propietario al editar un bloque existente. Los proyectos conservan sus snapshots y los iconos públicos siguen limitados a los slugs utilizados.
+
+`library/migration.js` agrega propiedad e índices mediante una transacción idempotente. Los registros anteriores permanecen en el catálogo compartido, conservando autores, YAML, slugs, versiones y referencias. La integración prueba esta migración en un esquema temporal aislado y verifica permisos entre dos cuentas, restauraciones y compatibilidad de proyectos.
 
 ## Límites transaccionales
 
