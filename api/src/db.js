@@ -7,18 +7,22 @@ import { replaceEmbeddedImages } from './images.js'
 
 export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
 export const q = (sql, args = []) => pool.query(sql, args)
-export async function transaction(fn) {
-  const client = await pool.connect()
-  try {
-    await client.query('BEGIN')
-    const result = await fn((sql, args = []) => client.query(sql, args))
-    await client.query('COMMIT')
-    return result
-  } catch (e) {
-    await client.query('ROLLBACK')
-    throw e
-  } finally { client.release() }
+// Use the same transaction boundary with the production pool or an isolated test pool.
+export function createTransaction(connectionPool) {
+  return async function transaction(fn) {
+    const client = await connectionPool.connect()
+    try {
+      await client.query('BEGIN')
+      const result = await fn((sql, args = []) => client.query(sql, args))
+      await client.query('COMMIT')
+      return result
+    } catch (e) {
+      await client.query('ROLLBACK')
+      throw e
+    } finally { client.release() }
+  }
 }
+export const transaction = createTransaction(pool)
 export async function signingSecret() {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET
   await q("INSERT INTO settings(key,value) VALUES('jwt_secret',$1::jsonb) ON CONFLICT(key) DO NOTHING", [JSON.stringify(crypto.randomBytes(48).toString('base64url'))])

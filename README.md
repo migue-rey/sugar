@@ -115,3 +115,7 @@ Selected connections expose a separate handle for each non-zero routing segment:
 ## Despliegue continuo
 
 La configuración de GitHub Actions, imágenes GHCR y despliegue en `sugar.maykolrey.com` está documentada en [deploy/README.md](deploy/README.md). Cada push a `main` valida, publica imágenes por commit y actualiza producción conservando los datos.
+
+## Arquitectura del backend
+
+El API se organiza por funcionalidades y separa `createApp()` del arranque del proceso. Consulta [api/README.md](api/README.md) para añadir rutas, servicios, consultas y pruebas de integración aisladas, incluidos los límites transaccionales de revisiones y sincronización.

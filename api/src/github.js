@@ -36,3 +36,18 @@ export async function syncOne({ query = q, authenticate = createAppAuth, request
   } finally { running = false }
 }
 export function startSync() { setInterval(() => syncOne().catch(console.error), 10000).unref() }
+
+// Project-specific queue operations; starting the worker remains a bootstrap decision.
+export function createProjectSyncService({ query, projects, synchronize = syncOne }) {
+  return {
+    async list(id, user) {
+      await projects.get(id, user)
+      return (await query("SELECT revision,status,attempts,error,commit_sha,created_at,target_repository,target_branch FROM sync_jobs WHERE kind='project' AND record_id=$1 ORDER BY id DESC LIMIT 10", [id])).rows
+    },
+    async retry(id, user) {
+      await projects.get(id, user, { ownerOnly: true })
+      await query("UPDATE sync_jobs SET next_attempt_at=now() WHERE kind='project' AND record_id=$1 AND status='pending'", [id])
+      synchronize().catch(console.error)
+    },
+  }
+}

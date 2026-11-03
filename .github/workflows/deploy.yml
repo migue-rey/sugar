@@ -53,7 +53,7 @@ jobs:
           for port in 3001 3002; do
             curl --fail --silent --retry 30 --retry-connrefused --retry-delay 1 "http://127.0.0.1:$port/api/health" > /dev/null
           done
-          AI_TEST_URL=http://127.0.0.1:3001 ICON_TEST_URL=http://127.0.0.1:3002 npm test
+          AI_TEST_URL=http://127.0.0.1:3001 ICON_TEST_URL=http://127.0.0.1:3002 API_TEST_URL=http://127.0.0.1:3002 API_TEST_DATABASE_URL=postgres://designer:ci-password@127.0.0.1:5432/sugar_icons npm test
       - run: npm ci
         working-directory: web
       - run: npm test && npm run build
