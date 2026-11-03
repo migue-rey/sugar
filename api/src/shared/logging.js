@@ -5,5 +5,5 @@ export function failureCode(error) {
   if (typeof code === 'string' && /^GITHUB_(READ|WRITE)_[1-5]\d\d$/.test(code)) return code
   return 'UNEXPECTED_ERROR'
 }
-const events = new Set(['HTTP request failed','GitHub sync failed','GitHub worker failed','GitHub retry failed','Database startup retry','API startup failed','Database migration failed'])
+const events = new Set(['HTTP request failed','GitHub sync failed','GitHub worker failed','GitHub retry failed','Database startup retry','API startup failed','Database migration failed','Database pool error'])
 export function reportFailure(event, error) { console.error(`${events.has(event) ? event : 'Application error'}: ${failureCode(error)}`) }

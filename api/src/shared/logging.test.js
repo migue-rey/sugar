@@ -3,11 +3,14 @@ import assert from 'node:assert/strict'
 import { reportFailure, failureCode } from './logging.js'
 import { errorHandler } from './http.js'
 import { syncOne } from '../github.js'
+import { pool } from '../db.js'
 
 test('unexpected HTTP and GitHub errors expose only fixed codes, not credentials or response bodies',async t=>{
   const saved=console.error,logs=[];console.error=(...parts)=>logs.push(parts.join(' '));t.after(()=>{console.error=saved})
   const secret='isolated-secret-never-log',err=Object.assign(Error(secret),{detail:secret,headers:{Authorization:secret}})
   reportFailure('Test error',err)
+  pool.emit('error', err)
+  assert(logs.includes('Database pool error: UNEXPECTED_ERROR'))
   let body
   errorHandler(err,null,{status:status=>{assert.equal(status,500);return{json:value=>{body=value}}}},()=>{})
   assert.deepEqual(body,{error:'Error interno'})

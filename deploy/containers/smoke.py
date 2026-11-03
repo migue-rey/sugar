@@ -90,6 +90,13 @@ def main(preview=False, database_image='sugar-privilege-database', rollback_data
             assert not host.get('Binds') and not host.get('PortBindings')
             state = run(base + ['exec', '-T', 'api', 'node', '/checks/verify.mjs', 'create'], env=env)
             json.loads(state)  # Synthetic test cookie stays in memory, never logged.
+            restart_count = metadata['RestartCount']
+            run(base + ['stop', 'db'], env=env)
+            print(run(base + ['exec', '-T', 'api', 'node', '/checks/readiness.mjs', 'down'], env=env))
+            run(base + ['up', '-d', '--wait', '--wait-timeout', '120', 'db'], env=env)
+            print(run(base + ['exec', '-T', 'api', 'node', '/checks/readiness.mjs', 'up'], env=env))
+            recovered = json.loads(run(['docker', 'inspect', identifier]))[0]
+            assert recovered['RestartCount'] == restart_count and recovered['State']['Running'], 'DB outage restarted API'
             if database_image:
                 # Exercise the candidate's root entrypoint on an existing volume too.
                 run(base + ['stop', 'api'], env=env)

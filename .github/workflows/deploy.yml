@@ -78,7 +78,7 @@ jobs:
           icons_pid=$!
           trap 'kill "$ai_pid" "$icons_pid" 2>/dev/null || true' EXIT
           for port in 3001 3002; do
-            curl --fail --silent --retry 30 --retry-connrefused --retry-delay 1 "http://127.0.0.1:$port/api/health" > /dev/null
+            curl --fail --silent --retry 30 --retry-connrefused --retry-delay 1 "http://127.0.0.1:$port/api/ready" > /dev/null
           done
           AI_TEST_URL=http://127.0.0.1:3001 ICON_TEST_URL=http://127.0.0.1:3002 API_TEST_URL=http://127.0.0.1:3002 API_TEST_DATABASE_URL=postgres://designer:ci-password@127.0.0.1:5432/sugar_icons npm test
       - name: Isolated administrative access and recovery checks
@@ -194,4 +194,4 @@ jobs:
           descriptor=$(python3 deploy/ci/runtime-artifact.py describe --directory "$RUNNER_TEMP/sugar-runtime" --commit "$GITHUB_SHA")
           printf '%s\n%s\n' "$REGISTRY_TOKEN" "$descriptor" | ssh -T -i ~/.ssh/sugar_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$DEPLOY_USER@$DEPLOY_HOST" "deploy-v2 $DEPLOY_SHA"
       - name: Verify public HTTPS endpoint
-        run: curl --fail --show-error --silent --retry 6 --retry-delay 5 https://sugar.maykolrey.com/api/health
+        run: curl --fail --show-error --silent --retry 6 --retry-delay 5 https://sugar.maykolrey.com/api/ready

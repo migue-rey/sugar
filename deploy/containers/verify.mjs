@@ -79,6 +79,7 @@ try {
   const allowed = await fetch('http://web/api/logout', { method: 'POST', headers: { Origin: process.env.PUBLIC_ORIGIN } })
   assert.equal(allowed.status, 200)
   assert.deepEqual(await request('/health'), { ok: true })
+  assert.deepEqual(await request('/ready'), { ok: true })
 
   if (process.argv[2] === 'create') {
     await request('/login', { email: 'admin@example.invalid', password: 'isolated-container-password' })

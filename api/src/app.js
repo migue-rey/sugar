@@ -1,6 +1,6 @@
 import express from 'express'
 import cookieParser from 'cookie-parser'
-import { errorHandler } from './shared/http.js'
+import { asyncRoute, errorHandler } from './shared/http.js'
 import { requireAdmin, requireEdit } from './auth/policies.js'
 import { createSessionRepository } from './auth/sessions.js'
 import { createAccessControls, limitsConfig, proxyList } from './security/limits.js'
@@ -27,6 +27,7 @@ import { createAiQuotas } from './ai/quotas.js'
 import { registerAi } from './ai.js'
 import { createProjectSyncService } from './github.js'
 import { registerSyncRoutes } from './github/routes.js'
+import { createReadiness, databaseProbe } from './monitoring/readiness.js'
 
 // Composition only: no DB initialization, listener, timers or background workers.
 // Query, transaction, session secret and GitHub operations belong to the caller.
@@ -54,6 +55,12 @@ export function createApp({ q, transaction, secret, enqueue, syncOne, callProvid
 
   // Public endpoints must precede the session middleware, just as before.
   app.get('/api/health', (_, res) => res.json({ ok: true }))
+  const ready = createReadiness({ probe: databaseProbe(q) })
+  app.get('/api/ready', asyncRoute(async (_req, res) => {
+    const ok = await ready()
+    if (!ok) res.set('Retry-After', '1')
+    res.status(ok ? 200 : 503).json({ ok })
+  }))
   registerImageContentRoute(app, images, auth)
   registerPublicProjectRoutes(app, projects)
   registerAuthRoutes(app, { auth, sessionSecure, loginGate: controls.login })

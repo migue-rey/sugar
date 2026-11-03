@@ -51,3 +51,7 @@ La API usa UID/GID 1000, raíz de solo lectura, tmpfs acotado y restricciones de
 ### Cabeceras y origen (#13)
 
 Ver [clasificación de caché, CSP, protección de escrituras y HTTPS](headers/README.md). Revisar PUBLIC_ORIGIN antes de cambiar el dominio/proxy. El web lleva su snippet en la imagen; la plantilla frontal/HSTS requiere aplicación separada durante una liberación autorizada. No se modificó producción. La inspección de los archivos exportados SVG/PNG permanece pendiente.
+
+### Disponibilidad (#23, etapa 1)
+
+Los healthchecks y verificadores de despliegue usan `/api/ready`, que comprueba DB/esquema con espera limitada y sin diagnósticos sensibles. `/api/health` conserva liveness independiente de DB. Ver [comportamiento, límites y prueba de caída/recuperación](monitoring/README.md). Auditoría de operaciones y alertas externas quedan pendientes; no se activaron monitores o destinos reales.

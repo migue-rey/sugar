@@ -8,8 +8,10 @@ import { bootstrapAdmin } from './auth/bootstrap.js'
 import crypto from 'node:crypto'
 import { stringify } from './model.js'
 import { replaceEmbeddedImages } from './images.js'
+import { reportFailure } from './shared/logging.js'
 
 export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
+pool.on('error', error => reportFailure('Database pool error', error))
 export const q = (sql, args = []) => pool.query(sql, args)
 // Use the same transaction boundary with the production pool or an isolated test pool.
 export function createTransaction(connectionPool) {
