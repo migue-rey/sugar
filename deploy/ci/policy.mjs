@@ -20,6 +20,7 @@ export function validate(workflow) {
   const scanSteps = jobs.secrets?.steps || []
   if (!scanSteps.some(step => step.run?.includes('python3 deploy/ci/scan-secrets.py'))) errors.push('Secret scan must execute the detector')
   if (!scanSteps.some(step => step.uses?.startsWith('actions/checkout@') && step.with?.['fetch-depth'] === 0)) errors.push('Secret scan requires complete history')
+  if (!(jobs.test?.steps || []).some(step => step.run?.includes('python3 deploy/ci/scan-vulnerabilities.py --npm --images sugar-privilege-api sugar-privilege-web postgres:17-alpine'))) errors.push('Dependency and runtime image gate required')
   for (const name of ['test', 'secrets']) {
     const job = jobs[name] || {}
     if (job.environment || Object.values(job.permissions || {}).some(value => value !== 'read')) errors.push(name + ': unprivileged validation required')

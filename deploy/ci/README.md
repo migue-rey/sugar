@@ -1,4 +1,4 @@
-# CI de seguridad y liberación — #14, etapa 1
+# CI de seguridad y liberación — #14
 
 ## Implementado en desarrollo
 
@@ -34,10 +34,32 @@ Antes de liberar esta entrega, revisar y aprobar:
 4. Comprobar ubicación de secretos de despliegue y, si corresponde, migrarlos al entorno protegido en una intervención autorizada. No borrar los existentes antes de verificar recuperación y acceso. Exigir una nueva orden humana de liberación para cada despliegue; subir una rama dev no la concede.
 5. Probar el bloqueo de una ejecución sin aprobación y el camino autorizado en la próxima liberación. Una corrida verde de desarrollo con publish/deploy omitidos no prueba que el entorno real exija revisión.
 
-## Próxima etapa pendiente
+## Etapa 2: dependencias e imágenes
 
-Auditoría separada de dependencias API de ejecución, dependencias/herramientas de compilación web e imágenes finales (sistema operativo y paquetes). Clasificar severidad, disponibilidad de corrección y aplicabilidad; no silenciar avisos existentes con una exclusión global para conseguir verde. Resolver actualizaciones en #15 y definir excepciones justificadas con caducidad. Revisar pins de acciones antiguos que GitHub avisa que ejecuta con compatibilidad Node 24. Esos escáneres y el gate correspondiente aún no están implementados: **#14 permanece abierto**.
+`scan-vulnerabilities.py` audita cuatro ámbitos npm: API/web con `--omit=dev` (runtime) y árbol completo (build, incluye también runtime). No se supone que una dependencia de producción de Vue se sirva íntegramente al navegador; la salida compilada es el artefacto real. El gate bloquea avisos npm moderados o superiores y severidad desconocida. Las herramientas npm incluidas en las imágenes de construcción no están cubiertas por la auditoría del lockfile de la aplicación: es un límite explícito de este análisis.
 
-Reversión durante liberación autorizada: conservar workflow/reglas anteriores, revisar qué checks son obligatorios y evitar que un cambio de nombre bloquee PR. No debilitar reglas, saltar un gate de secretos ni eliminar credenciales para resolver un fallo de CI. Esta etapa no modifica aplicación, datos, contenedores existentes ni producción.
+Trivy v0.76.1 está fijado por digest. Primero descarga su base en un contenedor con red que solo recibe una caché temporal vacía. Exige esquema 2 y actualización no superior a 24 horas. Luego exporta las imágenes finales API/web/PostgreSQL como tar y las analiza **sin red ni socket Docker**, como usuario local, raíz de solo lectura, sin capacidades. Comprueba la identidad de la imagen, presencia del análisis de SO y ausencia de fin de soporte informado. Incluye paquetes del SO y lenguajes; no usa ignore-unfixed ni exclusiones del repositorio. No arranca las imágenes ni consulta datos. La imagen PostgreSQL es la oficial usada por Compose/CI, no un volumen ni una exportación de la base.
 
-Fuentes: [Gitleaks oficial](https://github.com/gitleaks/gitleaks), [protección de ramas](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches), [entornos de despliegue](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
+El gate bloquea HIGH/CRITICAL/UNKNOWN de imágenes aunque no tengan corrección; informa los demás niveles, versión instalada, corrección disponible, ámbito y ubicación. La severidad la aporta cada fuente del detector; no se afirma explotabilidad por versión ni que una herramienta auxiliar exponga los mismos caminos que un servidor. Un error, timeout, informe incompleto, identidad distinta o base vencida bloquea. Solo se imprimen campos seleccionados de hallazgos; no metadata/env ni diagnósticos crudos.
+
+`vulnerability-exceptions.json` comienza vacío. Cualquier excepción requiere PR/revisión, coincidencia exacta de ámbito, aviso, paquete, versión y ruta, motivo concreto de aplicabilidad, issue y fecha absoluta de expiración dentro de 30 días. Valores comodín, entradas duplicadas, vencidas o sin coincidencia bloquean. Un aviso en otra ruta/versión/ámbito continúa bloqueando. Ejecutar todos los ámbitos juntos al usar excepciones; una ejecución parcial las tratará como pendientes sin coincidencia. Nunca añadir excepciones automáticamente para conseguir verde.
+
+```sh
+# Tras npm ci en api y web, y construir las imágenes finales:
+python3 -m unittest discover -s deploy/ci -p 'test_vulnerabilities.py'
+python3 deploy/ci/scan-vulnerabilities.py --npm --images sugar-privilege-api sugar-privilege-web postgres:17-alpine
+```
+
+El gate corre al final del job `test`, después de las pruebas funcionales, reutilizando las imágenes realmente construidas; `publish` continúa dependiendo de ese job y de Secret scan. Las acciones oficiales se actualizaron a checkout 7.0.1, setup-node 7.1.0, Buildx 4.4.1, login 4.7.0 y build-push 7.4.0, con SHA inmutable. Esto actualiza el runtime de Actions; la aplicación conserva Node 22. Los guards de main, permisos mínimos y checkout sin credenciales se conservan.
+
+### Resultado inicial y límites pendientes
+
+El 3 de noviembre, npm no informó avisos en ninguno de los cuatro ámbitos. Trivy detectó diez avisos HIGH en el npm incluido en la antigua imagen de API. El runtime de API ahora copia solo Node y los módulos de aplicación a Alpine 3.24 con libstdc++; no incluye npm/yarn/corepack. El escaneo de esa imagen no informó vulnerabilidades. Las pruebas de API y Compose aislado verifican el arranque, migración, restricciones, permisos, imágenes, IA simulada y persistencia con ese runtime mínimo.
+
+La imagen web Nginx 1.30.6/Alpine 3.24.3 informó inicialmente seis hallazgos HIGH/CRITICAL en brotli-libs, curl/libcurl y libexpat. Tras actualizar los paquetes de esa misma rama Alpine con `apk upgrade --no-cache`, su escaneo no informó vulnerabilidades. **El gate completo actualmente bloquea**: PostgreSQL 17.11/Alpine 3.24.3 informó 27 HIGH en Go stdlib/x/sys dentro de gosu, herramienta de cambio de usuario de su entrypoint. Consultar los informes del job para versiones/CVE vigentes. La etiqueta oficial de PostgreSQL se volvió a descargar y no cambió. No se aprobaron excepciones, no se modificó el volumen y no se afirma explotación remota de estos componentes. Su remediación/evaluación específica es la siguiente etapa de #14; no se declara verde ni se cierra el issue.
+
+El pipeline de publicación reconstruye desde el mismo commit después del gate y sus bases todavía usan tags del proveedor: no es promoción byte por byte del mismo digest escaneado. Antes de liberar, completar la promoción de artefactos idénticos o fijar y verificar los digests efectivos; los avisos y configuración externa pendientes tampoco autorizan liberar. Un escaneo sin avisos solo refleja las fuentes disponibles en ese momento, no garantiza ausencia de vulnerabilidades.
+
+Reversión durante liberación autorizada: conservar workflow/reglas anteriores, revisar qué checks son obligatorios y evitar que un cambio de nombre bloquee PR. No debilitar reglas, saltar un gate de secretos ni eliminar credenciales para resolver un fallo de CI. Esta entrega no altera datos, servicios existentes ni producción.
+
+Fuentes: [Trivy: imágenes](https://trivy.dev/docs/latest/target/container_image/), [operación sin red](https://trivy.dev/docs/latest/advanced/air-gap/), [Node Docker: imagen mínima](https://github.com/nodejs/docker-node/blob/main/docs/BestPractices.md), [acciones oficiales](https://github.com/actions/setup-node), [Gitleaks](https://github.com/gitleaks/gitleaks), [protección de ramas](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches), [entornos de despliegue](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).

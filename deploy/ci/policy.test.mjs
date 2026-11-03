@@ -16,6 +16,7 @@ test('workflow rejects unsafe release and validation changes', () => {
     w => { w.jobs.extra = { steps: [] } },
     w => { w.jobs.secrets.steps = w.jobs.secrets.steps.slice(0, 1) },
     w => { w.jobs.secrets.steps[0].with['fetch-depth'] = 1 },
+    w => { w.jobs.test.steps = w.jobs.test.steps.filter(step => !step.run?.includes('scan-vulnerabilities.py')) },
   ]
   for (const change of changes) { const workflow = fixture(); change(workflow); assert(validate(workflow).length) }
 })
