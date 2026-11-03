@@ -4,6 +4,7 @@ import { VueFlow, Handle, Position, useVueFlow, type Connection } from '@vue-flo
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { toPng, toSvg } from 'html-to-image'
+import { createExportFrame } from './exportFrame'
 import YAML from 'yaml'
 import { ArrowDownTrayIcon, ArrowPathIcon, ArrowRightStartOnRectangleIcon, ArrowTopRightOnSquareIcon, ArrowUpTrayIcon, Bars3Icon, ChevronDoubleLeftIcon, ChevronDoubleRightIcon, CheckCircleIcon, ClockIcon, CodeBracketIcon, Cog6ToothIcon, CpuChipIcon, CubeIcon, DocumentTextIcon, ExclamationCircleIcon, FolderIcon, LinkIcon, MoonIcon, PhotoIcon, PlusIcon, RectangleGroupIcon, ShareIcon, SparklesIcon, SunIcon, TrashIcon, UsersIcon, WrenchScrewdriverIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import BlockSymbol from './BlockSymbol.vue'
@@ -258,7 +259,25 @@ async function restoreRevision(revision: number) { if (!project.value || !editab
 async function deleteProject(id: string) { if (!admin.value || !confirm(t('deleteConfirm'))) return; await run(async () => { await api(`/projects/${id}`, 'DELETE'); if (project.value?.id === id) { project.value = null; page.value = 'projects' }; await loadBasics() }) }
 function download(name: string, data: string, mime: string) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000) }
 function exportYaml() { if (project.value) download(`${project.value.name}.yaml`, YAML.stringify(diagram.value, { lineWidth: 0 }), 'text/yaml') }
-async function exportImage(format: 'svg' | 'png') { const element = document.querySelector('.canvas .vue-flow') as HTMLElement; if (!element || !project.value) return; await run(async () => { const backgroundColor = getComputedStyle(element.closest('.canvas')!).getPropertyValue('--bg').trim(); const data = format === 'svg' ? await toSvg(element, { backgroundColor }) : await toPng(element, { backgroundColor, pixelRatio: 2 }); const a = document.createElement('a'); a.href = data; a.download = `${project.value!.name}.${format}`; a.click() }) }
+async function exportImage(format: 'svg' | 'png') {
+  const element = document.querySelector('.canvas .vue-flow') as HTMLElement
+  if (!element || !project.value) return
+  await run(async () => {
+    const backgroundColor = getComputedStyle(element.closest('.canvas')!).getPropertyValue('--bg').trim()
+    const frame = createExportFrame(element)
+    try {
+      // Reset logical insets too: computed inset-inline can retain the offscreen offset.
+      const options = { backgroundColor, style: { position: 'relative', inset: 'auto', insetInline: 'auto', insetBlock: 'auto', left: '0', top: '0' } }
+      const data = format === 'svg' ? await toSvg(frame, options) : await toPng(frame, { ...options, pixelRatio: 2 })
+      const a = document.createElement('a')
+      a.href = data
+      a.download = `${project.value!.name}.${format}`
+      a.hidden = true
+      document.body.append(a)
+      try { a.click() } finally { setTimeout(() => a.remove(), 1000) }
+    } finally { frame.remove() }
+  })
+}
 
 async function openLibrary() { await run(async () => { await loadBasics(); page.value = 'library'; if (blockSelection.value) await selectBlock(blockSelection.value.id) }) }
 async function selectBlock(id: string) { const item = blocks.value.find(b => b.id === id); if (!item) return; pendingBlockRestore.value = null; blockSelection.value = item; blockDraft.value = item.yaml; blockVersions.value = await api(`/blocks/${id}/versions`) }

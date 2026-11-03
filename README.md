@@ -119,3 +119,5 @@ La configuración de GitHub Actions, imágenes GHCR y despliegue en `sugar.mayko
 ## Arquitectura del backend
 
 El API se organiza por funcionalidades y separa `createApp()` del arranque del proceso. Consulta [api/README.md](api/README.md) para añadir rutas, servicios, consultas y pruebas de integración aisladas, incluidos los límites transaccionales de revisiones y sincronización.
+
+PNG and SVG exports include a small Sugar cube-and-name watermark in the bottom-right corner. It follows the selected theme and stays fixed in the exported image regardless of diagram zoom; it is not saved in project YAML.
