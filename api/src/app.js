@@ -2,8 +2,9 @@ import express from 'express'
 import cookieParser from 'cookie-parser'
 import { errorHandler } from './shared/http.js'
 import { requireAdmin, requireEdit } from './auth/policies.js'
+import { createSessionRepository } from './auth/sessions.js'
 import { createAuthService } from './auth/service.js'
-import { authenticate, registerAuthRoutes } from './auth/routes.js'
+import { authenticate, registerAuthRoutes, registerSessionRoutes } from './auth/routes.js'
 import { createUserRepository } from './users/repository.js'
 import { createUserService } from './users/service.js'
 import { registerUserRoutes } from './users/routes.js'
@@ -32,8 +33,8 @@ export function createApp({ q, transaction, secret, enqueue, syncOne, callProvid
   app.use(cookieParser())
   app.disable('x-powered-by')
 
-  const userRepository = createUserRepository(q)
-  const auth = createAuthService({ users: userRepository, secret })
+  const userRepository = createUserRepository(q, transaction)
+  const auth = createAuthService({ users: userRepository, sessions: createSessionRepository(q, transaction), secret })
   const images = createImageService(createImageRepository(q))
   const projects = createProjectService({
     projects: createProjectRepository(q), transaction, enqueue,
@@ -49,6 +50,7 @@ export function createApp({ q, transaction, secret, enqueue, syncOne, callProvid
   registerAuthRoutes(app, { auth, sessionSecure })
   app.use('/api', authenticate(auth))
 
+  registerSessionRoutes(app, auth)
   registerImageRoutes(app, images)
   registerDocumentRoutes(app, q)
   registerUserRoutes(app, createUserService(userRepository))

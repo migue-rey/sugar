@@ -53,6 +53,21 @@ El único adjunto subido que admite actualmente la aplicación es una imagen PNG
 
 `images/migration.js` agrega propiedad, referencias y vencimiento mediante una migración transaccional, idempotente y serializada. Reconstruye asociaciones desde revisiones sin modificarlas. Se prueban datos heredados, aislamiento entre cuentas, intentos de asociar IDs ajenos, lectores/miembros, historial, publicación, reutilización, revocación, vencimiento y rollback de asociaciones junto con historial.
 
+## Sesiones revocables
+
+`auth/sessions.js` mantiene identidades de sesión en PostgreSQL. Cada login crea un UUID distinto y un JWT HS256 firmado con `id`/`sid`; no guarda el token bearer en la base. JWT y registro vencen a los siete días sin renovación automática. Cada petición comprueba firma, vencimiento, registro no revocado, versión de credenciales, cuenta activa y rol/preferencias actuales. Reiniciar la API conserva las sesiones. La inicialización es idempotente.
+
+- `POST /api/logout` revoca esa identidad antes de borrar la cookie; una copia del token deja de autenticar. Es idempotente incluso para cookies inválidas o ausentes.
+- `GET /api/me/sessions` lista únicamente sesiones activas propias (`id`, `created_at`, `expires_at`, `current`). No devuelve JWT, hashes, IP ni User-Agent.
+- `DELETE /api/me/sessions/:id` cierra una sesión propia; un ID ajeno recibe 404. Si es la actual, también borra la cookie.
+- `POST /api/me/sessions/revoke-others` cierra todas las otras identidades existentes de esa cuenta, conservando la actual. Se serializa con login y cambios de contraseña; un login legítimo posterior puede crear una nueva sesión.
+- Cambiar contraseña invalida **todas** las sesiones, incluida la actual, y exige volver a entrar. El cambio de hash, incremento de `users.auth_version` y revocaciones comparten transacción; se compara el hash esperado para evitar carreras con otro cambio o login. La futura recuperación de contraseña (#17) debe reutilizar esta operación atómica; todavía no existe un flujo de recuperación ni se envían correos.
+- Desactivar una cuenta incrementa su versión y revoca sesiones en la misma transacción. Reactivarla no revive tokens viejos. Cambiar el rol se refleja en la siguiente petición sin emitir otro JWT.
+
+Las cookies conservan `HttpOnly`, `SameSite=Strict`, siete días y `Secure` en producción. Login, logout, metadatos de sesiones y errores 401 indican `private, no-store`. Una sesión inválida/caducada produce 401 y borra la cookie; el frontend vuelve al formulario de acceso, sin reintentar automáticamente operaciones. La revocación se aplica a peticiones nuevas; no cancela peticiones ya autorizadas. La recuperación de borradores tras caducar pertenece a #27.
+
+**Liberación:** los JWT antiguos sin identidad `sid` se rechazan: al desplegar esta entrega, todas las cuentas deberán iniciar sesión de nuevo. No se modifican contraseñas ni datos de proyectos. Las sesiones posteriores sobreviven reinicios mientras se conserven PostgreSQL y la clave de firma. La retención/poda de registros revocados o vencidos se tratará con las cuotas de #20.
+
 ## Límites transaccionales
 
 - Crear proyecto: proyecto + revisión inicial.

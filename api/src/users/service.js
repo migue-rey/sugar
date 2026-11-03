@@ -13,8 +13,9 @@ export function createUserService(users) {
     async password(user, input) {
       const old = requiredText(input.currentPassword, 'Contraseña actual'), fresh = requiredText(input.newPassword, 'Nueva contraseña')
       if (fresh.length < 12) error(400, 'La nueva contraseña debe tener al menos 12 caracteres')
-      if (!(await bcrypt.compare(old, await users.passwordHash(user.id)))) error(400, 'Contraseña actual incorrecta')
-      await users.password(user.id, await bcrypt.hash(fresh, 12))
+      const expectedHash = await users.passwordHash(user.id)
+      if (!(await bcrypt.compare(old, expectedHash))) error(400, 'Contraseña actual incorrecta')
+      if (!(await users.password(user.id, await bcrypt.hash(fresh, 12), expectedHash))) error(409, 'La contraseña cambió; vuelve a entrar')
     },
     async list(user) { requireAdmin(user); return users.list() },
     async create(user, input) {

@@ -1,3 +1,4 @@
+import { sessionRequest } from './sessionRequest'
 export const aiMessages = {
   es: {
     ai: 'IA', aiTitle: 'Inteligencia artificial', aiReview: 'Revisar con IA', aiProvider: 'Proveedor', aiToken: 'Token de API', aiEnabled: 'Habilitar IA', aiTokenSaved: 'Token configurado. Deja el campo vacío para conservarlo.', aiTokenEmpty: 'Sin token configurado', aiRemoveToken: 'Eliminar token', aiTest: 'Probar conexión', aiTestOk: 'Conexión con DeepSeek verificada', aiSave: 'Guardar configuración', aiConfigHint: 'Configuración global para Admin y dev. Guarda los cambios antes de probar. La prueba consume una petición breve.', aiEncryptionHint: 'Respalda AI_ENCRYPTION_KEY junto con la base de datos: es necesaria para recuperar el token.', aiAnalyze: 'Analizar', aiRecommend: 'Recomendar', aiFocus: 'Enfoque opcional', aiFocusHint: 'Ej.: revisar alimentación o conexiones I2C', aiDisclosure: 'Se enviarán los bloques, propiedades y conexiones actuales a DeepSeek. Cada consulta consume saldo del proveedor. No se envían imágenes ni se descargan enlaces. No incluyas secretos en las descripciones.', aiPending: 'Revisando el proyecto… Puedes seguir trabajando; el resultado corresponde al estado enviado.', aiHistory: 'Análisis guardados', aiNoHistory: 'Aún no hay análisis guardados.', aiMore: 'Cargar más', aiStale: 'La pizarra cambió. Este resultado corresponde a un estado anterior.', aiSnapshot: 'Estado analizado', aiBase: 'Revisión base', aiSnapshotHint: 'Incluye la pizarra y sus cambios sin guardar al ejecutar la consulta.', aiReadOnly: 'Puedes consultar el historial. Admin y dev pueden ejecutar análisis.', aiUsage: 'Tokens utilizados', aiSelectBlock: 'Seleccionar bloque', aiReload: 'Actualizar historial',
@@ -12,7 +13,7 @@ export type AiConfig = { provider: string; model: string; enabled: boolean; toke
 export type Analysis = { id: string; project_id: string; author: string; created_at: string; base_revision: number; snapshot_hash: string; snapshot?: import('./types').Diagram; action: 'analyze' | 'recommend'; focus: string; language: string; provider: string; model: string; response?: string; usage?: { total_tokens?: number } }
 export async function aiApi(path: string, method = 'GET', body?: unknown) {
   try {
-    const res = await fetch('/api' + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
+    const res = await sessionRequest('/api' + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || 'aiNetworkError')
     return data

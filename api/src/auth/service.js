@@ -1,23 +1,47 @@
 import bcrypt from 'bcryptjs'
+import crypto from 'node:crypto'
 import jwt from 'jsonwebtoken'
 import { error } from '../shared/http.js'
+const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)
+export const sessionLifetime = 7 * 24 * 60 * 60
 
-export function createAuthService({ users, secret }) {
+export function createAuthService({ users, sessions, secret }) {
+  function identity(token, ignoreExpiration = false) {
+    if (!token) error(401, 'Sesión requerida')
+    let payload
+    try { payload = jwt.verify(token, secret, { algorithms: ['HS256'], ignoreExpiration }) }
+    catch (e) { error(401, e.name === 'TokenExpiredError' ? 'La sesión caducó. Vuelve a entrar.' : 'Sesión inválida') }
+    if (!uuid(payload?.id) || !uuid(payload?.sid)) error(401, 'Sesión inválida')
+    return { userId: payload.id, sessionId: payload.sid }
+  }
+  async function authenticateSession(token) {
+    const { userId, sessionId } = identity(token)
+    const user = await sessions.user(sessionId, userId)
+    if (!user) error(401, 'Sesión inválida o caducada. Vuelve a entrar.')
+    return { user, sessionId }
+  }
   return {
     async login(input) {
       const user = await users.findActiveByEmail(String(input.email || '').toLowerCase())
       if (!user || !(await bcrypt.compare(String(input.password || ''), user.password_hash))) error(401, 'Credenciales inválidas')
+      const sid = crypto.randomUUID(), expiresAt = new Date(Date.now() + sessionLifetime * 1000)
+      if (!(await sessions.create(sid, user.id, user.password_hash, expiresAt))) error(401, 'Credenciales inválidas')
       return {
-        token: jwt.sign({ id: user.id }, secret, { expiresIn: '7d' }),
+        token: jwt.sign({ id: user.id, sid }, secret, { algorithm: 'HS256', expiresIn: sessionLifetime }),
         user: { id: user.id, email: user.email, role: user.role, language: user.language, theme: user.theme },
       }
     },
-    async authenticate(token) {
-      if (!token) error(401, 'Sesión requerida')
-      const payload = jwt.verify(token, secret)
-      const user = await users.findActiveById(payload.id)
-      if (!user) error(401, 'Sesión inválida')
-      return user
+    authenticateSession,
+    authenticate: async token => (await authenticateSession(token)).user,
+    async logout(token) {
+      let claim
+      try { claim = identity(token, true) } catch (e) { if (e.status === 401) return; throw e }
+      await sessions.revoke(claim.sessionId, claim.userId)
+    },
+    listSessions: (user, currentId) => sessions.list(user.id, currentId),
+    revokeOthers: (user, currentId) => sessions.revokeOthers(user.id, currentId),
+    async revokeSession(user, id) {
+      if (!uuid(id) || !(await sessions.revoke(id, user.id))) error(404, 'Sesión no encontrada')
     },
   }
 }

@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import bcrypt from 'bcryptjs'
 import { createApp } from './app.js'
 
-const user = { id: 'owner', email: 'admin@local', role: 'Admin', language: 'es', theme: 'light' }
+const user = { id: '11111111-1111-1111-1111-111111111111', email: 'admin@local', role: 'Admin', language: 'es', theme: 'light' }
 const project = { id: 'p', created_by: user.id, visibility: 'public', name: 'Public', yaml: 'name: Public\nnodes: []\nedges: []\n', revision: 1, creator: user.email, share_token: 'not-public', sync_repository: 'private/repo' }
 
 test('constructing the application does not listen, initialize DB or start timers/workers', () => {
@@ -29,6 +29,10 @@ test('HTTP contracts retain public routes, session cookies, authentication and e
   const q = async (sql, params) => {
     calls.push(sql)
     if (sql.startsWith('SELECT * FROM users')) return { rows: params[0] === user.email ? [{ ...user, password_hash: hash }] : [] }
+    if (sql.startsWith('SELECT auth_version')) return { rows: [{ auth_version: 0 }] }
+    if (sql.startsWith('INSERT INTO user_sessions')) return { rows: [] }
+    if (sql.startsWith('UPDATE user_sessions')) return { rowCount: 1, rows: [] }
+    if (sql.startsWith('SELECT u.id,u.email,u.role,u.language,u.theme FROM user_sessions')) return { rows: [user] }
     if (sql.startsWith('SELECT id,email,role,language,theme')) return { rows: params[0] === user.id ? [user] : [] }
     if (sql.includes("p.visibility='public'")) return { rows: params[0] === 'p' ? [project] : [] }
     if (sql.startsWith('SELECT mime,data')) return { rows: [{ mime: 'image/png', data: Buffer.from('test-image') }] }

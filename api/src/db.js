@@ -1,3 +1,4 @@
+import { initSessionDb } from './auth/sessions.js'
 import { migrateImageAccess } from './images/migration.js'
 import { imageIds, recordImageReferences } from './images/references.js'
 import { initAiDb } from './ai.js'
@@ -34,6 +35,7 @@ export async function signingSecret() {
 export async function initDb() {
   await q(`CREATE TABLE IF NOT EXISTS users (id uuid PRIMARY KEY, email text UNIQUE NOT NULL, password_hash text NOT NULL, role text NOT NULL CHECK(role IN ('view','dev','Admin')), language text NOT NULL DEFAULT 'es', theme text NOT NULL DEFAULT 'light', active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now())`)
   await q(`ALTER TABLE users ALTER COLUMN theme SET DEFAULT 'light'`)
+  await initSessionDb(q)
   await q(`CREATE TABLE IF NOT EXISTS images (id uuid PRIMARY KEY, name text NOT NULL, mime text NOT NULL, data bytea NOT NULL, created_by uuid REFERENCES users(id), created_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz)` )
   await q(`CREATE TABLE IF NOT EXISTS blocks (id uuid PRIMARY KEY, name text NOT NULL, latest_version integer NOT NULL DEFAULT 0, deleted_at timestamptz)`)
   await q(`CREATE TABLE IF NOT EXISTS block_categories (id uuid PRIMARY KEY, slug text UNIQUE NOT NULL, name text NOT NULL, name_key text NOT NULL, parent_id uuid REFERENCES block_categories(id), deleted_at timestamptz)`)

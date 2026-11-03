@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { sessionRequest } from './sessionRequest'
 import { computed, onMounted, ref } from 'vue'
 const props = defineProps<{ projectId: string; language: 'es' | 'en' }>()
 type Member = { user_id: string; email: string; role: 'editor' | 'reader'; active: boolean }
@@ -9,7 +10,7 @@ const labels = {
 }
 const t = computed(() => labels[props.language])
 async function request(path = '', method = 'GET', body?: unknown) {
-  const response = await fetch(`/api/projects/${props.projectId}/members${path}`, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
+  const response = await sessionRequest(`/api/projects/${props.projectId}/members${path}`, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
   if (!response.ok) throw Error(t.value.failed)
   return response.json()
 }

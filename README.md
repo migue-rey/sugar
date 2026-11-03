@@ -69,7 +69,7 @@ A port can use any non-empty protocol text, such as `I2C`, `CSI`, `LVDS`, or `PA
 | `dev` | Create and edit projects and personal block definitions/categories; read shared catalog; remove nodes and edges inside a diagram. |
 | `Admin` | All `dev` actions, plus account management and deletion of projects and library blocks. |
 
-An administrator creates user accounts. Deleted users are deactivated so revision authorship remains available. Deleting a project or library block hides it from the app while retaining its history in PostgreSQL.
+An administrator creates user accounts. In **Settings → Active sessions**, users can close another session or all other sessions. Logout revokes its server-side identity; changing a password closes every session, including the current one. Sessions expire after seven days and survive API restarts. Releasing the revocable-session migration requires everyone to sign in again; see `api/README.md`. Deleted users are deactivated so revision authorship remains available. Deleting a project or library block hides it from the app while retaining its history in PostgreSQL.
 
 ## Optional GitHub synchronization
 
