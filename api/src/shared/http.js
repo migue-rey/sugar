@@ -6,6 +6,7 @@ export const requiredText = (value, label) => {
 }
 
 export function errorHandler(err, _req, res, _next) {
+  if (err.status === 429) res.set('Retry-After', String(err.retryAfter || 1)).set('Cache-Control', 'private, no-store')
   if (err.code === '23505') return res.status(409).json({ error: 'Ya existe un registro con ese nombre o identificador' })
   if (err.code === '22P02') return res.status(400).json({ error: 'Identificador inválido' })
   const status = err.status || (err.name === 'JsonWebTokenError' ? 401 : 500)

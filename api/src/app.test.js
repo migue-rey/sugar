@@ -56,7 +56,8 @@ test('HTTP contracts retain public routes, session cookies, authentication and e
   res = await request('/shared/invalid'); assert.equal(res.status, 404)
   res = await request('/images/i/content'); assert.equal(res.status, 404); assert.equal(res.headers.get('cache-control'), 'private, no-store')
   res = await request('/images'); assert.equal(res.status, 401)
-  res = await request('/login', { email: 'missing', password: 'wrong' }); assert.equal(res.status, 401); assert.deepEqual(await res.json(), { error: 'Credenciales inválidas' })
+  res = await request('/login', { email: 'oversized@local', password: 'x'.repeat(5000) }); assert.equal(res.status, 413)
+  res = await request('/login', { email: 'missing@local', password: 'wrong' }); assert.equal(res.status, 401); assert.deepEqual(await res.json(), { error: 'Credenciales inválidas' })
   res = await request('/login', { email: 'ADMIN@LOCAL', password: 'local-test-password' }); assert.equal(res.status, 200)
   assert.deepEqual(await res.json(), user)
   const setCookie = res.headers.get('set-cookie'), cookie = setCookie.split(';')[0]

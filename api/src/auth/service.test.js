@@ -27,7 +27,7 @@ test('expired, legacy, wrong-algorithm and malformed tokens return 401 before se
   const f = fixture(), sid = '22222222-2222-2222-2222-222222222222'
   for (const token of [jwt.sign({ id, sid }, secret, { expiresIn: -1 }), jwt.sign({ id }, secret), jwt.sign({ id, sid }, secret, { algorithm: 'HS384' }), jwt.sign({ id, sid: 'invalid' }, secret), 'invalid', undefined]) await assert.rejects(f.service.authenticate(token), { status: 401 })
   await assert.rejects(f.service.login({ email: user.email, password: 'wrong' }), { status: 401 })
-  await assert.rejects(f.service.login({ email: 'unknown', password: 'unit-password' }), { status: 401 })
+  await assert.rejects(f.service.login({ email: 'unknown@local', password: 'unit-password' }), { status: 401 })
   assert.equal(f.saved.size, 0)
 })
 test('credentials changing between password verification and session creation prevent login', async () => {

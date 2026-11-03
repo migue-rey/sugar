@@ -91,6 +91,7 @@ async function api(path: string, method = 'GET', body?: unknown, raw = false): P
   const res = await sessionRequest('/api' + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
   if (!res.ok) {
     const payload = await res.json().catch(() => ({}))
+    if (res.status === 429) throw new Error(t('rateLimitWait').replace('{seconds}', res.headers.get('Retry-After') || '60'))
     throw new Error(payload.error || (res.status === 409 ? t('conflict') : `HTTP ${res.status}`))
   }
   return raw ? res.text() : res.json()

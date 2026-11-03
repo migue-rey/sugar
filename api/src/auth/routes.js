@@ -1,8 +1,8 @@
 import { asyncRoute, noStore } from '../shared/http.js'
 import { sessionLifetime } from './service.js'
 
-export function registerAuthRoutes(app, { auth, sessionSecure }) {
-  app.post('/api/login', noStore, asyncRoute(async (req, res) => {
+export function registerAuthRoutes(app, { auth, sessionSecure, loginGate }) {
+  app.post('/api/login', noStore, loginGate, asyncRoute(async (req, res) => {
     const result = await auth.login(req.body)
     res.cookie('session', result.token, { httpOnly: true, sameSite: 'strict', secure: sessionSecure || req.secure, maxAge: sessionLifetime * 1000, path: '/' })
     res.json(result.user)

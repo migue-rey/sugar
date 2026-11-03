@@ -3,6 +3,7 @@ import cookieParser from 'cookie-parser'
 import { errorHandler } from './shared/http.js'
 import { requireAdmin, requireEdit } from './auth/policies.js'
 import { createSessionRepository } from './auth/sessions.js'
+import { createAccessControls, limitsConfig, proxyList } from './security/limits.js'
 import { createAuthService } from './auth/service.js'
 import { authenticate, registerAuthRoutes, registerSessionRoutes } from './auth/routes.js'
 import { createUserRepository } from './users/repository.js'
@@ -27,14 +28,18 @@ import { registerSyncRoutes } from './github/routes.js'
 
 // Composition only: no DB initialization, listener, timers or background workers.
 // Query, transaction, session secret and GitHub operations belong to the caller.
-export function createApp({ q, transaction, secret, enqueue, syncOne, callProvider, sessionSecure = process.env.SESSION_SECURE === 'true' }) {
+export function createApp({ q, transaction, secret, enqueue, syncOne, callProvider, sessionSecure = process.env.SESSION_SECURE === 'true', accessConfig = limitsConfig(), trustedProxies = process.env.TRUSTED_PROXIES || '' }) {
   const app = express()
+  app.set('trust proxy', proxyList(trustedProxies))
+  const controls = createAccessControls({ secret, config: accessConfig })
+  app.use('/api', controls.api)
+  app.post(['/api/login', '/api/me/password', '/api/users'], express.json({ limit: '4kb' }))
   app.use(express.json({ limit: '3mb' }))
   app.use(cookieParser())
   app.disable('x-powered-by')
 
   const userRepository = createUserRepository(q, transaction)
-  const auth = createAuthService({ users: userRepository, sessions: createSessionRepository(q, transaction), secret })
+  const auth = createAuthService({ users: userRepository, sessions: createSessionRepository(q, transaction), secret, runCredential: controls.runCredential })
   const images = createImageService(createImageRepository(q))
   const projects = createProjectService({
     projects: createProjectRepository(q), transaction, enqueue,
@@ -47,13 +52,15 @@ export function createApp({ q, transaction, secret, enqueue, syncOne, callProvid
   app.get('/api/health', (_, res) => res.json({ ok: true }))
   registerImageContentRoute(app, images, auth)
   registerPublicProjectRoutes(app, projects)
-  registerAuthRoutes(app, { auth, sessionSecure })
+  registerAuthRoutes(app, { auth, sessionSecure, loginGate: controls.login })
   app.use('/api', authenticate(auth))
 
+  app.post('/api/me/password', controls.credentials)
+  app.post('/api/users', controls.credentials)
   registerSessionRoutes(app, auth)
   registerImageRoutes(app, images)
   registerDocumentRoutes(app, q)
-  registerUserRoutes(app, createUserService(userRepository))
+  registerUserRoutes(app, createUserService(userRepository, { runCredential: controls.runCredential }))
   registerCategoryRoutes(app, { query: q, transaction })
   registerBlockRoutes(app, blocks)
   registerProjectRoutes(app, projects)

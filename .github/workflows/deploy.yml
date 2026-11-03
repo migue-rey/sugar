@@ -41,6 +41,10 @@ jobs:
         working-directory: api
         env:
           DATABASE_URL: postgres://designer:ci-password@127.0.0.1:5432/sugar_ai
+          AUTH_IP_LIMIT: '1000'
+          AUTH_GLOBAL_LIMIT: '10000'
+          AUTH_CREDENTIAL_LIMIT: '1000'
+          AUTH_HASH_CONCURRENCY: '32'
           AI_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
         run: |
           set -euo pipefail

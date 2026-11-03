@@ -2,6 +2,7 @@ import { aiMessages } from './ai'
 export const messages = {
   es: {
     ...aiMessages.es,
+    rateLimitWait: 'Demasiadas solicitudes. Vuelve a intentarlo en {seconds} segundos.',
     sessionExpired: 'Tu sesión caducó o fue cerrada. Vuelve a entrar.', passwordChangedSignIn: 'Contraseña actualizada. Todas las sesiones se cerraron; vuelve a entrar.',
     shareExpiryHint: 'El enlace privado caduca a los 7 días. Revocarlo bloquea nuevas solicitudes; no elimina copias ya descargadas.',
     readOnlyProject: 'Acceso de solo lectura a la pizarra.',
@@ -9,6 +10,7 @@ export const messages = {
   },
   en: {
     ...aiMessages.en,
+    rateLimitWait: 'Too many requests. Try again in {seconds} seconds.',
     sessionExpired: 'Your session expired or was closed. Sign in again.', passwordChangedSignIn: 'Password updated. All sessions were closed; sign in again.',
     shareExpiryHint: 'Private links expire after 7 days. Revoking blocks new requests; downloaded copies remain.',
     readOnlyProject: 'Read-only access to the board.',

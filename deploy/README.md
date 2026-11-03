@@ -27,3 +27,7 @@ Los límites de memoria son 512 MiB para PostgreSQL, 384 MiB para la API y 128 M
 ### Enlaces privados y registros
 
 Al liberar la protección de imágenes (#5), actualizar la configuración del proxy existente usando `deploy/nginx.conf`, conservando los ajustes HTTPS de Certbot. El formato `sugar_safe` omite query strings y Referer, y oculta los tokens del path `/api/shared/`. Comprobar `nginx -t` antes de recargar. No añadir caché/CDN a imágenes o respuestas compartidas: la API exige `private, no-store`. La reconstrucción de imágenes Docker no reemplaza por sí sola la configuración Nginx del host.
+
+### Cadena de IP y límites de acceso (#7)
+
+Antes de liberar, identificar los proxies que conectan con Express y configurar `TRUSTED_PROXIES` con sus IP/CIDR concretos. La plantilla frontal sobrescribe las cabeceras de IP proporcionadas por el cliente; el web interno añade su salto. Conservar el web en loopback y la API sin puerto público. Validar la cadena efectiva y `nginx -t` durante la liberación autorizada. Sin esta configuración los clientes se agrupan bajo la IP del proxy. Los presupuestos `API_*`/`AUTH_*` están en Compose; ver valores, alcance por proceso y política de reintentos en `api/README.md`. Antes de escalar réplicas se necesita limitación compartida.

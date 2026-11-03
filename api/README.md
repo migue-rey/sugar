@@ -68,6 +68,29 @@ Las cookies conservan `HttpOnly`, `SameSite=Strict`, siete días y `Secure` en p
 
 **Liberación:** los JWT antiguos sin identidad `sid` se rechazan: al desplegar esta entrega, todas las cuentas deberán iniciar sesión de nuevo. No se modifican contraseñas ni datos de proyectos. Las sesiones posteriores sobreviven reinicios mientras se conserven PostgreSQL y la clave de firma. La retención/poda de registros revocados o vencidos se tratará con las cuotas de #20.
 
+## Límites de acceso y proxies
+
+`security/limits.js` aplica controles en memoria **por proceso de API**, sin consultas extra a PostgreSQL ni esperas activas. No es un contador distribuido: antes de añadir réplicas debe existir un límite compartido en el proxy o almacén central. Reiniciar el proceso reinicia contadores. Las pruebas de ráfagas usan presupuestos explícitos pequeños; las APIs desechables de CI elevan límites de fixtures para no interferir entre suites paralelas.
+
+| Variable | Predeterminado | Ventana y alcance |
+| --- | --- | --- |
+| `API_IP_LIMIT` | 600 | peticiones API/minuto por IPv4 o subred IPv6 /64 |
+| `API_GLOBAL_LIMIT` | 3000 | peticiones API/minuto por proceso |
+| `AUTH_IP_LIMIT` | 20 | intentos de login/minuto por IP o /64 |
+| `AUTH_GLOBAL_LIMIT` | 120 | intentos de login/minuto por proceso |
+| `AUTH_ACCOUNT_LIMIT` | 10 | intentos por email normalizado cada 15 minutos; éxito reinicia ese contador |
+| `AUTH_CREDENTIAL_LIMIT` | 5 | cambios de contraseña/creación de cuentas por usuario autenticado cada 15 minutos |
+| `AUTH_HASH_CONCURRENCY` | 4 | operaciones de credenciales simultáneas; no hay cola |
+| `AUTH_MAX_KEYS` | 20000 | entradas máximas del contador; al llenarse rechaza claves nuevas hasta liberar vencidas |
+
+Tras tres fallos de login se exige esperar 1, 2, 4… segundos hasta 60. Se responde 429 con `Retry-After` entero y `private, no-store`; no se retienen conexiones durmiendo ni se reintentan peticiones. Intentos rechazados no prolongan la ventana de cuenta de 15 minutos: no hay bloqueo permanente. Un aborto de conexión no libera el cupo bcrypt hasta finalizar su trabajo. `/api/health` queda fuera de estos límites para no provocar reinicios por las comprobaciones de salud.
+
+Login, cambio de contraseña y creación de cuentas tienen un cuerpo JSON máximo de 4 KiB. Login exige strings, email con formato/longitud acotados y contraseña de hasta 1024 bytes; se mantiene compatibilidad con credenciales antiguas largas. Las contraseñas nuevas no superan 72 bytes, evitando truncamiento silencioso de bcrypt. Cuentas desconocidas/desactivadas y contraseñas incorrectas usan el mismo error y una comparación bcrypt de coste 12. Los contadores no contienen emails, IP ni contraseñas en claro: sus claves usan HMAC efímero con la clave de firma y no se registran en logs.
+
+`TRUSTED_PROXIES` es una lista explícita de IP/CIDR separados por coma, vacía por defecto (se ignoran cabeceras de IP). Se rechazan booleanos, número de saltos y rutas universales. Al liberar, determinar las IP/redes **de los proxies reales** y configurar solo esas; no copiar indiscriminadamente todos los rangos privados. El proxy frontal sobrescribe `X-Forwarded-For` con su conexión real y el contenedor web añade el salto que observó. Express se detiene en el primer salto no confiable. La API y el puerto del contenedor web deben quedar inaccesibles públicamente por fuera de esta cadena. Véase la [documentación oficial de Express sobre proxies](https://expressjs.com/en/guide/behind-proxies/).
+
+Sin configuración de proxies, el límite por IP agrupa los clientes del proxy: es conservador frente a abuso, pero puede limitar usuarios legítimos juntos. Aplicar la plantilla Nginx frontal y configurar `TRUSTED_PROXIES` son tareas de la liberación autorizada; esta rama no cambia la VPS. Registro y recuperación futuros (#16/#17) deben usar límites equivalentes antes de consultar cuentas, enviar correo o calcular hashes, manteniendo respuestas genéricas. La protección de gasto de IA se trata en #8.
+
 ## Límites transaccionales
 
 - Crear proyecto: proyecto + revisión inicial.
