@@ -2,3 +2,13 @@ node_modules/
 dist/
 .env
 *.log
+
+.env.*
+!.env.example
+secrets/
+backups/
+*.pem
+*.key
+*.dump
+__pycache__/
+*.py[cod]

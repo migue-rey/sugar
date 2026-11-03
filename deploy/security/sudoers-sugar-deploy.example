@@ -1,0 +1,6 @@
+# Install only after creating/verifying the dedicated account and recovery operator.
+# Validate using visudo -cf. The script must be root-owned and not writable by this user.
+# Its one-argument SHA validation rejects extra arguments before privileged operations.
+Defaults:sugar-deploy env_reset
+Defaults:sugar-deploy secure_path="/usr/sbin:/usr/bin:/sbin:/bin"
+sugar-deploy ALL=(root) NOPASSWD: NOSETENV: /srv/sugar/deploy.sh *

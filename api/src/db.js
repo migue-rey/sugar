@@ -4,7 +4,7 @@ import { imageIds, recordImageReferences } from './images/references.js'
 import { initAiDb } from './ai.js'
 import { migrateLibraryOwnership } from './library/migration.js'
 import pg from 'pg'
-import bcrypt from 'bcryptjs'
+import { bootstrapAdmin } from './auth/bootstrap.js'
 import crypto from 'node:crypto'
 import { stringify } from './model.js'
 import { replaceEmbeddedImages } from './images.js'
@@ -64,14 +64,7 @@ export async function initDb() {
   await q(`UPDATE sync_jobs SET status='skipped',error='Configura un repositorio en el proyecto para sincronizar' WHERE kind='project' AND target_repository IS NULL AND status='pending'`)
   await q(`UPDATE sync_jobs SET status='skipped',error='La sincronización global de la biblioteca fue retirada' WHERE kind='block' AND status='pending'`)
   await initAiDb(q)
-  const count = await q('SELECT count(*)::int AS n FROM users')
-  if (count.rows[0].n === 0) {
-    const password = process.env.ADMIN_PASSWORD || crypto.randomBytes(12).toString('base64url')
-    const email = process.env.ADMIN_EMAIL || 'admin@local'
-    await q('INSERT INTO users(id,email,password_hash,role) VALUES($1,$2,$3,$4)', [crypto.randomUUID(), email.toLowerCase(), await bcrypt.hash(password, 12), 'Admin'])
-    console.log(`Initial admin: ${email} / ${password}`)
-    if (!process.env.ADMIN_PASSWORD) console.log('Save this generated password now; it is displayed only on first boot.')
-  }
+  await bootstrapAdmin({ transaction })
   await migrateImageAccess(transaction)
   // Convert current documents once; historical revisions remain intact for audit.
   for (const row of (await q("SELECT id,revision,yaml,sync_repository,sync_branch,created_by FROM projects WHERE deleted_at IS NULL AND yaml LIKE '%data:image/%'")).rows) {

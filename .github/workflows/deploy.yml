@@ -58,6 +58,13 @@ jobs:
             curl --fail --silent --retry 30 --retry-connrefused --retry-delay 1 "http://127.0.0.1:$port/api/health" > /dev/null
           done
           AI_TEST_URL=http://127.0.0.1:3001 ICON_TEST_URL=http://127.0.0.1:3002 API_TEST_URL=http://127.0.0.1:3002 API_TEST_DATABASE_URL=postgres://designer:ci-password@127.0.0.1:5432/sugar_icons npm test
+      - name: Isolated administrative access and recovery checks
+        run: |
+          set -euo pipefail
+          bash -n deploy/deploy.sh deploy/ssh-gateway.sh
+          python3 -m unittest discover -s deploy/security -p 'test_*.py'
+          docker build -f deploy/security/Dockerfile.test -t sugar-admin-security-test .
+          docker run --rm --network none sugar-admin-security-test
       - run: npm ci
         working-directory: web
       - run: npm test && npm run build

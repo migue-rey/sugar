@@ -27,7 +27,7 @@ services:
       AI_ENCRYPTION_KEY: ${AI_ENCRYPTION_KEY:?Keep this key with backups}
       JWT_SECRET: ${JWT_SECRET:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@local}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set initial admin password}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       GITHUB_APP_ID: ${GITHUB_APP_ID:-}
       GITHUB_INSTALLATION_ID: ${GITHUB_INSTALLATION_ID:-}
       GITHUB_PRIVATE_KEY: ${GITHUB_PRIVATE_KEY:-}

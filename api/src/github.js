@@ -1,4 +1,5 @@
 import { createAppAuth } from '@octokit/auth-app'
+import { reportFailure, failureCode } from './shared/logging.js'
 import { q } from './db.js'
 
 let running = false
@@ -25,17 +26,17 @@ export async function syncOne({ query = q, authenticate = createAppAuth, request
     const existing = await request(`${url}?ref=${encodeURIComponent(branch)}`, { headers })
     let sha
     if (existing.ok) sha = (await existing.json()).sha
-    else if (existing.status !== 404) throw new Error(`GitHub read: ${existing.status}`)
+    else if (existing.status !== 404) throw Object.assign(new Error('GitHub read failed'), { code: `GITHUB_READ_${existing.status}` })
     const res = await request(url, { method: 'PUT', headers, body: JSON.stringify({ message: `${job.kind} ${job.record_id} revision ${job.revision}`, content: Buffer.from(job.yaml).toString('base64'), branch, ...(sha ? { sha } : {}) }) })
-    if (!res.ok) throw new Error(`GitHub write: ${res.status} ${(await res.text()).slice(0, 300)}`)
+    if (!res.ok) throw Object.assign(new Error('GitHub write failed'), { code: `GITHUB_WRITE_${res.status}` })
     const data = await res.json()
     await query("UPDATE sync_jobs SET status='synced', error=NULL, commit_sha=$2 WHERE id=$1", [job.id, data.commit?.sha || null])
   } catch (e) {
-    if (job) await query("UPDATE sync_jobs SET attempts=attempts+1,error=$2,next_attempt_at=now() + ((LEAST(POWER(2, attempts), 3600))::text || ' seconds')::interval WHERE id=$1", [job.id, String(e.message || e)])
-    console.error('GitHub sync:', e.message || e)
+    if (job) await query("UPDATE sync_jobs SET attempts=attempts+1,error=$2,next_attempt_at=now() + ((LEAST(POWER(2, attempts), 3600))::text || ' seconds')::interval WHERE id=$1", [job.id, failureCode(e)])
+    reportFailure('GitHub sync failed', e)
   } finally { running = false }
 }
-export function startSync() { setInterval(() => syncOne().catch(console.error), 10000).unref() }
+export function startSync() { setInterval(() => syncOne().catch(error => reportFailure('GitHub worker failed', error)), 10000).unref() }
 
 // Project-specific queue operations; starting the worker remains a bootstrap decision.
 export function createProjectSyncService({ query, projects, synchronize = syncOne }) {
@@ -47,7 +48,7 @@ export function createProjectSyncService({ query, projects, synchronize = syncOn
     async retry(id, user) {
       await projects.get(id, user, { ownerOnly: true })
       await query("UPDATE sync_jobs SET next_attempt_at=now() WHERE kind='project' AND record_id=$1 AND status='pending'", [id])
-      synchronize().catch(console.error)
+      synchronize().catch(error => reportFailure('GitHub retry failed', error))
     },
   }
 }

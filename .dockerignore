@@ -1,0 +1,15 @@
+.git
+**/node_modules
+**/dist
+**/__pycache__
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+**/secrets
+**/backups
+**/*.pem
+**/*.key
+**/*.dump
+graphify-out

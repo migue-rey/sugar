@@ -7,7 +7,7 @@ La VPS mantiene `/srv/sugar/compose.yaml`, `deploy.sh`, `ssh-gateway.sh`, `.env`
 ## Configuración inicial
 
 1. Crear el registro DNS A `sugar` apuntando a la VPS.
-2. Instalar los tres archivos de ejecución de esta carpeta en `/srv/sugar`, propiedad de root. Crear `.env` con permisos `600`: `DB_PASSWORD`, `ADMIN_PASSWORD` y `AI_ENCRYPTION_KEY` son obligatorios. Conservar esta última clave con las copias de seguridad para recuperar los tokens cifrados. No subir `.env`, claves privadas ni volcados al repositorio.
+2. Instalar compose.yaml, deploy.sh, ssh-gateway.sh y security/check-files.py de esta carpeta en `/srv/sugar`, propiedad de root. Crear `.env` con permisos `600`: `DB_PASSWORD` y `AI_ENCRYPTION_KEY` son obligatorios; `ADMIN_PASSWORD` es necesaria solo al inicializar una base vacía y puede retirarse del arranque después. Conservar esta última clave con las copias de seguridad para recuperar los tokens cifrados. No subir `.env`, claves privadas ni volcados al repositorio.
 3. Crear una clave SSH dedicada. En `authorized_keys`, restringirla con `restrict,command="/srv/sugar/ssh-gateway.sh"`. Solo acepta `deploy <SHA de 40 caracteres>`; no permite terminal, túneles ni comandos arbitrarios. Cambios en los scripts de infraestructura requieren instalación por un administrador.
 4. Configurar en GitHub los secretos `VPS_SSH_KEY` y `VPS_KNOWN_HOSTS`, y las variables `VPS_HOST` y `VPS_USER`. La huella SSH se obtiene a través de una conexión administrativa ya verificada.
 5. Instalar `nginx.conf`, validar con `nginx -t` y recargar Nginx. Tras propagarse DNS, ejecutar `certbot --nginx -d sugar.maykolrey.com --redirect`.
@@ -31,3 +31,7 @@ Al liberar la protección de imágenes (#5), actualizar la configuración del pr
 ### Cadena de IP y límites de acceso (#7)
 
 Antes de liberar, identificar los proxies que conectan con Express y configurar `TRUSTED_PROXIES` con sus IP/CIDR concretos. La plantilla frontal sobrescribe las cabeceras de IP proporcionadas por el cliente; el web interno añade su salto. Conservar el web en loopback y la API sin puerto público. Validar la cadena efectiva y `nginx -t` durante la liberación autorizada. Sin esta configuración los clientes se agrupan bajo la IP del proxy. Los presupuestos `API_*`/`AUTH_*` están en Compose; ver valores, alcance por proceso y política de reintentos en `api/README.md`. Antes de escalar réplicas se necesita limitación compartida.
+
+### Preparación de acceso administrativo (#9)
+
+El [runbook de seguridad](security/README.md) incluye acceso alternativo, recuperación, rotación, SSH por claves, CI con sudo acotado, permisos y reversión. Su política y el sudoers son plantillas: no se aplican automáticamente ni se cambian accesos actuales. El despliegue nuevo requiere instalar también `security/check-files.py`, proteger su directorio y pasar la auditoría antes de usar Docker. El alta inicial ya no genera/imprime contraseñas; una base vacía requiere ADMIN_PASSWORD explícita. No restablece usuarios existentes. Las comprobaciones del servidor real y cualquier rotación quedan pendientes de una orden de producción.

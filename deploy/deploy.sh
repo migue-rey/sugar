@@ -1,11 +1,22 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+[[ "$EUID" -eq 0 ]] || { echo 'Deployment requires the restricted root runner.' >&2; exit 2; }
+[[ "$#" -eq 1 && "$1" =~ ^[a-f0-9]{40}$ ]] || { echo 'Expected one full commit SHA' >&2; exit 2; }
 cd /srv/sugar
-exec 9>/srv/sugar/.deploy.lock
-flock -w 600 9
 sha=${1:-}
-[[ "$sha" =~ ^[a-f0-9]{40}$ ]] || { echo 'Expected a full commit SHA' >&2; exit 2; }
+# Validate the checker and its parent directories before running it as root.
+for protected in /srv /srv/sugar /srv/sugar/security /srv/sugar/security/check-files.py; do
+  [[ -e "$protected" && ! -L "$protected" ]] || { echo 'Unsafe deployment permissions.' >&2; exit 2; }
+  if [[ "$protected" == *.py ]]; then [[ -f "$protected" ]] || exit 2; else [[ -d "$protected" ]] || exit 2; fi
+  owner=$(stat -c %u "$protected" 2>/dev/null) || exit 2
+  mode=$(stat -c %a "$protected" 2>/dev/null) || exit 2
+  [[ "$owner" -eq 0 ]] && (( (8#$mode & 0022) == 0 )) || { echo 'Unsafe deployment permissions.' >&2; exit 2; }
+done
+python3 /srv/sugar/security/check-files.py --root /srv/sugar --owner-uid 0
+exec 9>>/srv/sugar/.deploy.lock
+flock -w 600 9
 read -r registry_token
 [[ -n "$registry_token" ]] || exit 2
 registry_config=$(mktemp -d)

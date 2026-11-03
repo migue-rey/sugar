@@ -1,2 +1,11 @@
 node_modules
 *.log
+
+.env
+.env.*
+!.env.example
+secrets/
+backups/
+*.pem
+*.key
+*.dump

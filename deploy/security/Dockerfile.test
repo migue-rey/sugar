@@ -1,0 +1,8 @@
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-server openssh-client sudo python3 && rm -rf /var/lib/apt/lists/* /etc/ssh/ssh_host_*
+WORKDIR /test
+COPY deploy/security /test/security
+COPY deploy/ssh-gateway.sh /srv/sugar/ssh-gateway.sh
+COPY deploy/deploy.sh /test/real-deploy.sh
+RUN chmod 755 /srv/sugar/ssh-gateway.sh && mkdir -p /run/sshd
+CMD ["python3", "/test/security/ssh-smoke.py"]
