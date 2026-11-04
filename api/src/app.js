@@ -29,10 +29,16 @@ import { createProjectSyncService } from './github.js'
 import { registerSyncRoutes } from './github/routes.js'
 import { createReadiness, databaseProbe } from './monitoring/readiness.js'
 import { securityAudit } from './monitoring/audit.js'
+import { registrationConfig as loadRegistrationConfig } from './registration/config.js'
+import { createRegistrationRepository, registrationSchemaReady } from './registration/repository.js'
+import { createRegistrationService } from './registration/service.js'
+import { registerRegistrationRoutes } from './registration/routes.js'
+import { createMailService } from './mail/service.js'
+import { registerMailRoutes } from './mail/routes.js'
 
 // Composition only: no DB initialization, listener, timers or background workers.
 // Query, transaction, session secret and GitHub operations belong to the caller.
-export function createApp({ q, transaction, secret, enqueue, syncOne, callProvider, auditWriter, sessionSecure = process.env.SESSION_SECURE === 'true', accessConfig = limitsConfig(), trustedProxies = process.env.TRUSTED_PROXIES || '', origin = process.env.PUBLIC_ORIGIN || '' }) {
+export function createApp({ q, transaction, secret, enqueue, syncOne, callProvider, auditWriter, sendVerification, mailService, registrationConfig = loadRegistrationConfig(), sessionSecure = process.env.SESSION_SECURE === 'true', accessConfig = limitsConfig(), trustedProxies = process.env.TRUSTED_PROXIES || '', origin = process.env.PUBLIC_ORIGIN || '' }) {
   const app = express()
   app.set('trust proxy', proxyList(trustedProxies))
   app.disable('x-powered-by')
@@ -41,12 +47,14 @@ export function createApp({ q, transaction, secret, enqueue, syncOne, callProvid
   const controls = createAccessControls({ secret, config: accessConfig })
   app.use('/api', controls.api)
   app.use('/api', securityAudit({ write: auditWriter }))
-  app.post(['/api/login', '/api/me/password', '/api/users'], express.json({ limit: '4kb' }))
+  app.post(['/api/login', '/api/me/password', '/api/users', '/api/registration/request', '/api/registration/verify'], express.json({ limit: '4kb' }))
+  app.put('/api/mail', express.json({ limit: '8kb' }))
   app.use(express.json({ limit: '3mb' }))
   app.use(cookieParser())
 
   const userRepository = createUserRepository(q, transaction)
   const auth = createAuthService({ users: userRepository, sessions: createSessionRepository(q, transaction), secret, runCredential: controls.runCredential })
+  const mail = mailService || createMailService({ q })
   const images = createImageService(createImageRepository(q))
   const projects = createProjectService({
     projects: createProjectRepository(q), transaction, enqueue,
@@ -57,7 +65,8 @@ export function createApp({ q, transaction, secret, enqueue, syncOne, callProvid
 
   // Public endpoints must precede the session middleware, just as before.
   app.get('/api/health', (_, res) => res.json({ ok: true }))
-  const ready = createReadiness({ probe: databaseProbe(q) })
+  const probe = databaseProbe(q)
+  const ready = createReadiness({ probe: async () => (await probe()) && (!registrationConfig.enabled || await registrationSchemaReady(q)) })
   app.get('/api/ready', asyncRoute(async (_req, res) => {
     const ok = await ready()
     if (!ok) res.set('Retry-After', '1')
@@ -66,11 +75,16 @@ export function createApp({ q, transaction, secret, enqueue, syncOne, callProvid
   registerImageContentRoute(app, images, auth)
   registerPublicProjectRoutes(app, projects)
   registerAuthRoutes(app, { auth, sessionSecure, loginGate: controls.login })
+  registerRegistrationRoutes(app, {
+    registration: createRegistrationService({ repository: createRegistrationRepository(q, transaction), config: registrationConfig, sendVerification: sendVerification || mail.sendVerification, runCredential: controls.runCredential }),
+    gate: controls.registration,
+  })
   app.use('/api', authenticate(auth))
 
   app.post('/api/me/password', controls.credentials)
   app.post('/api/users', controls.credentials)
   registerSessionRoutes(app, auth)
+  registerMailRoutes(app, { mail, gate: controls.credentials })
   registerImageRoutes(app, images)
   registerDocumentRoutes(app, q)
   registerUserRoutes(app, createUserService(userRepository, { runCredential: controls.runCredential }))

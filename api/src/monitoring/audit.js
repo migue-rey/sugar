@@ -4,6 +4,8 @@ const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 const identity = value => typeof value === 'string' && new RegExp(`^${uuid}$`).test(value) ? value : null
 const rules = [
   ['POST', '/login', 'auth.login'], ['POST', '/logout', 'auth.logout'],
+  ['POST', '/registration/request', 'auth.registration_request'], ['POST', '/registration/verify', 'auth.registration_verify'],
+  ['PUT', '/mail', 'mail.configure'], ['POST', '/mail/test', 'mail.connection_test'],
   ['POST', '/me/password', 'auth.password_change'],
   ['POST', '/me/sessions/revoke-others', 'auth.sessions_revoke'],
   ['DELETE', `/me/sessions/(${uuid})`, 'auth.session_revoke'],

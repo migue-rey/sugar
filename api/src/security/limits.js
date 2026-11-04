@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { isIP } from 'node:net'
 import { error } from '../shared/http.js'
+import { registrationEmail } from '../registration/service.js'
 
 export function clientNetwork(address = '') {
   const ip = address.toLowerCase().split('%')[0]
@@ -75,6 +76,12 @@ export function createAccessControls({ secret, config = limitsConfig(), clock = 
       })
     }),
     credentials: middleware(req => { spend('credentials:' + digest(req.user.id), config.credentials, accountWindow) }),
+    registration: middleware(req => {
+      const verify = req.path.toLowerCase().replace(/\/$/, '').endsWith('/verify')
+      spend('registration:global', 30, minute)
+      spend('registration:' + (verify ? 'verify:' : 'request:') + digest(clientNetwork(req.ip)), verify ? 20 : 3, accountWindow)
+      if (!verify) spend('registration:email:' + digest(registrationEmail(req.body).email), 3, 60 * minute)
+    }),
     async runCredential(task) {
       if (hashActive >= config.parallel) limited(1)
       hashActive++

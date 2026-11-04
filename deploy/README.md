@@ -55,3 +55,7 @@ Ver [clasificación de caché, CSP, protección de escrituras y HTTPS](headers/R
 ### Disponibilidad (#23, etapa 1)
 
 Los healthchecks y verificadores de despliegue usan `/api/ready`, que comprueba DB/esquema con espera limitada y sin diagnósticos sensibles. `/api/health` conserva liveness independiente de DB. Ver [comportamiento, límites y prueba de caída/recuperación](monitoring/README.md). Auditoría de operaciones y alertas externas quedan pendientes; no se activaron monitores o destinos reales.
+
+### Registration/email activation (separate owner decision)
+
+The registration UI and Admin SMTP configuration ship disabled for public signup. Before enabling: complete #2 blockers, run migration, generate/preserve independent `MAIL_ENCRYPTION_KEY` (64 hex characters), configure SMTP as Admin (or SMTP_HOST/PORT/USER/PASSWORD/FROM fallback), and set PUBLIC_ORIGIN. Owner-approved activation requires REGISTRATION_ENABLED=true and an API restart; startup and readiness reject a missing registration migration; startup also rejects incomplete SMTP configuration. Saving SMTP settings alone does not open registration. A later owner-approved release must supply the new key without replacing AI_ENCRYPTION_KEY. Keep both keys in the separately encrypted recovery package. Never use real SMTP for automated tests. See api/README.md for contracts/limits.

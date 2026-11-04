@@ -30,7 +30,7 @@ Both packages use Node’s built-in test runner. Name frontend tests `*.test.mjs
 
 ## Commit & Pull Request Guidelines
 
-Make every requested change on a development branch, such as `dev/issue-1-api-modules`. Never merge or push changes to `main`, or deploy production, without the user’s explicit production-release instruction: pushes to `main` automatically publish and deploy. Development workflow runs only test. Use concise imperative commit subjects. PRs should explain behavior, link issues, and report validation.
+Keep one active development branch, currently `dev/public-readiness`, accumulating issue deliveries with separate commits. Do not create another branch until the active branch has been deployed with explicit authorization. Preserve historical branches. Never merge or push changes to `main`, or deploy production, without a new explicit production-release instruction: pushes to `main` automatically publish and deploy. Development workflow runs only test. Use concise imperative commit subjects. PRs should explain behavior, link issues, and report validation.
 
 ## Security & Configuration
 
