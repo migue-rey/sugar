@@ -6,7 +6,7 @@ import { normalizeColorLiterals, stringify, validateProject } from '../model.js'
 import { repositorySettings } from './validation.js'
 import { pageInput, pageResult, revisionPageInput, revisionPageResult, bigintPageInput, identifierPageResult } from '../shared/pagination.js'
 
-export function createProjectService({ projects, transaction, enqueue, categoryIcons, replaceEmbeddedImages, attachImages = async () => {} }) {
+export function createProjectService({ projects, transaction, storage, enqueue, categoryIcons, replaceEmbeddedImages, attachImages = async () => {} }) {
   const get = async (id, user, options, tx, lock = false) => {
     const project = requireProjectAccess(await projects.find(id, user.id, tx, lock), user, options)
     return { ...project, permissions: projectPermissions(project, user) }
@@ -15,6 +15,7 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
     const { id, name, yaml, revision, creator, visibility } = project
     return { id, name, yaml, revision, creator, visibility, category_icons: await categoryIcons(yaml) }
   }
+  const write = (id, action) => storage ? storage.write('project', id, action) : transaction(action)
   return {
     get,
     list: user => projects.list(user),
@@ -60,7 +61,7 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
       requireEdit(user)
       const yaml = normalizeColorLiterals(requiredText(input.yaml || stringify({ name: input.name || 'Nuevo proyecto', nodes: [], edges: [] }), 'YAML'))
       const project = validateProject(yaml), id = crypto.randomUUID()
-      await transaction(async tx => {
+      await write(id, async tx => {
         await projects.create(id, project.name, yaml, user.id, tx)
         await attachImages(yaml, 'project', id, user, tx)
         await projects.addRevision(id, 1, yaml, user.id, input.summary || 'Proyecto creado', tx)
@@ -106,7 +107,7 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
       await get(id, user, { edit: true })
       const yaml = normalizeColorLiterals(requiredText(input.yaml, 'YAML')), project = validateProject(yaml), expected = Number(input.expectedRevision)
       if (!Number.isInteger(expected) || expected < 1) error(400, 'Revisión esperada inválida')
-      const revision = await transaction(async tx => {
+      const revision = await write(id, async tx => {
         const current = await get(id, user, { edit: true }, tx, true)
         const saved = await projects.save(id, expected, project.name, yaml, tx)
         if (!saved) error(409, 'El proyecto cambió; recarga antes de guardar')
@@ -146,7 +147,7 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
       if (!Number.isInteger(wanted) || !Number.isInteger(expected)) error(400, 'Revisión inválida')
       const source = await projects.revision(id, wanted)
       if (!source) error(404, 'Revisión no encontrada')
-      const revision = await transaction(async tx => {
+      const revision = await write(id, async tx => {
         const current = await get(id, user, { edit: true }, tx, true)
         const yaml = normalizeColorLiterals(await replaceEmbeddedImages(source.yaml, 'project', tx, { ownerId: user.id }))
         const doc = validateProject(yaml)

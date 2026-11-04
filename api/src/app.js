@@ -40,6 +40,9 @@ import { createRecoveryService } from './recovery/service.js'
 import { registerRecoveryRoutes, registerAccountEmailRoutes } from './recovery/routes.js'
 import { createImageStorage } from './images/quotas.js'
 import { registerImageStorageRoutes } from './images/quota-routes.js'
+import { createDocumentStorage } from './document-storage/service.js'
+import { createDocumentStorageRepository } from './document-storage/repository.js'
+import { registerDocumentStorageRoutes } from './document-storage/routes.js'
 
 // Composition only: no DB initialization, listener, timers or background workers.
 // Query, transaction, session secret and GitHub operations belong to the caller.
@@ -62,13 +65,14 @@ export function createApp({ q, transaction, secret, enqueue, syncOne, callProvid
   const mail = mailService || createMailService({ q })
   const recovery = createRecoveryService({ repository: createRecoveryRepository(q, transaction), config: recoveryConfig, mail, runCredential: controls.runCredential })
   const imageStorage = createImageStorage({ q, transaction })
+  const documentStorage = createDocumentStorage({ repository: createDocumentStorageRepository(q), transaction })
   const images = createImageService(createImageRepository(q), imageStorage)
   const migrateEmbeddedImages = (yaml, kind, tx, options) => replaceEmbeddedImages(yaml, kind, tx, { ...options, storage: imageStorage })
   const projects = createProjectService({
-    projects: createProjectRepository(q), transaction, enqueue,
+    projects: createProjectRepository(q), transaction, enqueue, storage: documentStorage,
     categoryIcons: yaml => projectCategoryIcons(yaml, q), replaceEmbeddedImages: migrateEmbeddedImages, attachImages: images.attach,
   })
-  const blocks = createBlockService({ blocks: createBlockRepository(q), transaction, validateCategory, replaceEmbeddedImages: migrateEmbeddedImages, attachImages: images.attach })
+  const blocks = createBlockService({ blocks: createBlockRepository(q), transaction, storage: documentStorage, validateCategory, replaceEmbeddedImages: migrateEmbeddedImages, attachImages: images.attach })
   const sync = createProjectSyncService({ query: q, projects, synchronize: syncOne })
 
   // Public endpoints must precede the session middleware, just as before.
@@ -97,6 +101,7 @@ export function createApp({ q, transaction, secret, enqueue, syncOne, callProvid
   registerMailRoutes(app, { mail, gate: controls.credentials })
   registerImageRoutes(app, images)
   registerImageStorageRoutes(app, imageStorage)
+  registerDocumentStorageRoutes(app, documentStorage)
   registerDocumentRoutes(app, q)
   registerUserRoutes(app, createUserService(userRepository, { runCredential: controls.runCredential, passwordChanged: recovery.passwordChanged }))
   registerCategoryRoutes(app, { query: q, transaction })

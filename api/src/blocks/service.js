@@ -6,8 +6,9 @@ import { libraryOwner, libraryPermissions, requireLibraryAccess } from '../libra
 import { normalizeColorLiterals, stringify, validateBlock } from '../model.js'
 import { revisionPageInput, revisionPageResult, identifierPageInput, identifierPageResult } from '../shared/pagination.js'
 
-export function createBlockService({ blocks, transaction, validateCategory, replaceEmbeddedImages, attachImages = async () => {} }) {
+export function createBlockService({ blocks, transaction, storage, validateCategory, replaceEmbeddedImages, attachImages = async () => {} }) {
   const get = async (id, user, edit = false, tx, lock = false) => requireLibraryAccess(await blocks.find(id, tx, lock), user, edit)
+  const write = (id, action) => storage ? storage.write('block', id, action) : transaction(action)
   return {
     list: async user => (await blocks.list(user)).map(block => ({ ...block, permissions: libraryPermissions(block, user) })),
     async page(user, query) {
@@ -22,7 +23,7 @@ export function createBlockService({ blocks, transaction, validateCategory, repl
     async create(user, input) {
       const ownerId = libraryOwner(user, input.scope)
       const yaml = normalizeColorLiterals(requiredText(input.yaml, 'YAML')), block = validateBlock(yaml), id = crypto.randomUUID(), summary = input.summary || 'Bloque creado'
-      await transaction(async tx => {
+      await write(id, async tx => {
         await validateCategory(block, tx, false, ownerId)
         await blocks.create(id, block, tx, ownerId)
         await attachImages(yaml, 'block', id, user, tx)
@@ -57,7 +58,7 @@ export function createBlockService({ blocks, transaction, validateCategory, repl
       if (!Number.isInteger(wanted) || !Number.isInteger(expected)) error(400, 'Versión inválida')
       const source = await blocks.version(id, wanted)
       if (!source) error(404, 'Versión no encontrada')
-      const version = await transaction(async tx => {
+      const version = await write(id, async tx => {
         const current = await get(id, user, true, tx, true)
         let yaml = normalizeColorLiterals(await replaceEmbeddedImages(source.yaml, 'block', tx, { ownerId: current.owner_id, catalog: !current.owner_id }))
         let block = validateBlock(yaml)
@@ -82,7 +83,7 @@ export function createBlockService({ blocks, transaction, validateCategory, repl
       await get(id, user, true)
       const yaml = normalizeColorLiterals(requiredText(input.yaml, 'YAML')), block = validateBlock(yaml), expected = Number(input.expectedVersion)
       if (!Number.isInteger(expected) || expected < 1) error(400, 'Versión esperada inválida')
-      const version = await transaction(async tx => {
+      const version = await write(id, async tx => {
         const current = await get(id, user, true, tx, true)
         await validateCategory(block, tx, false, current.owner_id)
         const saved = await blocks.save(id, expected, block, tx)
