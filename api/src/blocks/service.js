@@ -4,17 +4,26 @@ import { error, requiredText } from '../shared/http.js'
 import { requireAdmin } from '../auth/policies.js'
 import { libraryOwner, libraryPermissions, requireLibraryAccess } from '../library/access.js'
 import { normalizeColorLiterals, stringify, validateBlock, revisionSummary } from '../model.js'
-import { revisionPageInput, revisionPageResult, identifierPageInput, identifierPageResult } from '../shared/pagination.js'
+import { revisionPageInput, revisionPageResult, identifierPageInput } from '../shared/pagination.js'
 
 export function createBlockService({ blocks, transaction, storage, validateCategory, replaceEmbeddedImages, attachImages = async () => {} }) {
   const get = async (id, user, edit = false, tx, lock = false) => requireLibraryAccess(await blocks.find(id, tx, lock), user, edit)
   const write = (id, action) => storage ? storage.write('block', id, action) : transaction(action)
+  const loadPage = async (user, options) => {
+    const rows = await blocks.page(user, options)
+    if (rows.some(row => row.page_oversized)) error(413, 'Un bloque antiguo supera 4 MiB de YAML/nombre; reduce su contenido antes de listar / A legacy block exceeds 4 MiB of YAML/name; reduce its content before listing')
+    return {
+      items: rows.map(({ page_more, page_oversized, ...block }) => ({ ...block, permissions: libraryPermissions(block, user) })),
+      nextCursor: rows[0]?.page_more ? rows.at(-1).id : null,
+    }
+  }
   return {
-    list: async user => (await blocks.list(user)).map(block => ({ ...block, permissions: libraryPermissions(block, user) })),
-    async page(user, query) {
-      const options = identifierPageInput(query)
-      return identifierPageResult(await blocks.page(user, options), options.limit, block => ({ ...block, permissions: libraryPermissions(block, user) }))
+    async list(user) {
+      const page = await loadPage(user, { limit: 100, after: null, nameOrder: true })
+      if (page.nextCursor) error(413, 'Listado antiguo demasiado grande; usa la biblioteca paginada / Legacy listing too large; use the paginated library')
+      return page.items
     },
+    page: (user, query) => loadPage(user, identifierPageInput(query)),
     async get(id, user) {
       await get(id, user)
       const block = requireLibraryAccess(await blocks.current(id), user)

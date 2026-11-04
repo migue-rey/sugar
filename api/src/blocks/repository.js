@@ -1,17 +1,29 @@
+import { libraryPageBytes } from './pagination.js'
 export function createBlockRepository(query) {
   return {
-    async list(user) {
-      return (await query(`SELECT b.id,b.name,b.latest_version,b.owner_id,v.yaml,v.created_at FROM blocks b JOIN block_versions v ON v.block_id=b.id AND v.version=b.latest_version WHERE b.deleted_at IS NULL AND (b.owner_id IS NULL OR b.owner_id=$1 OR $2='Admin') ORDER BY b.name`, [user.id, user.role])).rows
-    },
-    async page(user, { limit, after }) {
+    async page(user, { limit, after, nameOrder = false }) {
       const args = [], bind = value => { args.push(value); return '$' + args.length }
       const boundary = after ? `AND b.id>${bind(after)}::uuid` : '', cap = bind(limit + 1)
+      const order = nameOrder ? 'b.name,b.id' : 'b.id', windowOrder = nameOrder ? 'name,id' : 'id'
       const branch = filter => `(SELECT b.id,b.name,b.latest_version,b.owner_id FROM blocks b
         WHERE b.deleted_at IS NULL AND EXISTS(SELECT 1 FROM block_versions v WHERE v.block_id=b.id AND v.version=b.latest_version)
-        ${filter} ${boundary} ORDER BY b.id LIMIT ${cap})`
+        ${filter} ${boundary} ORDER BY ${order} LIMIT ${cap})`
       const candidates = user.role === 'Admin' ? branch('') : branch(`AND b.owner_id=${bind(user.id)}::uuid`) + ' UNION ALL ' + branch('AND b.owner_id IS NULL')
-      return (await query(`SELECT b.*,v.yaml,v.created_at FROM (${candidates}) b
-        JOIN block_versions v ON v.block_id=b.id AND v.version=b.latest_version ORDER BY b.id LIMIT ${cap}`, args)).rows
+      const visible = bind(limit)
+      return (await query(`WITH candidates AS (
+        SELECT b.* FROM (${candidates}) b ORDER BY ${order} LIMIT ${cap}
+      ), measured AS (
+        SELECT b.*,v.yaml,v.created_at FROM candidates b JOIN block_versions v ON v.block_id=b.id AND v.version=b.latest_version
+      ), prefix AS (
+        SELECT measured.*,row_number() OVER(ORDER BY ${windowOrder}) AS n,
+          sum(octet_length(yaml)::bigint+octet_length(name)) OVER(ORDER BY ${windowOrder}) AS page_bytes FROM measured
+      ), budget AS (
+        SELECT count(*) AS total,count(*) FILTER(WHERE n<=${visible} AND page_bytes<=${libraryPageBytes}) AS accepted FROM prefix
+      )
+      SELECT c.id,c.name,c.latest_version,c.owner_id,c.yaml,c.created_at,b.accepted<b.total AS page_more,false AS page_oversized
+        FROM prefix c CROSS JOIN budget b WHERE c.n<=${visible} AND c.page_bytes<=${libraryPageBytes}
+      UNION ALL SELECT c.id,NULL,NULL,NULL,NULL,NULL,false,true FROM prefix c CROSS JOIN budget b WHERE b.accepted=0 AND c.n=1
+      ORDER BY ${nameOrder ? 'name,id' : 'id'}`, args)).rows
     },
     async current(id) {
       return (await query(`SELECT b.id,b.name,b.latest_version,b.owner_id,v.yaml,v.created_at
