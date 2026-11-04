@@ -3,6 +3,7 @@ import { error, requiredText } from '../shared/http.js'
 import { requireAdmin, requireEdit } from '../auth/policies.js'
 import { imageBytes } from '../images.js'
 import { imageIds, recordImageReferences } from './references.js'
+import { pageInput, pageResult } from '../shared/pagination.js'
 const validId = id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)
 
 export function createImageService(images) {
@@ -25,6 +26,10 @@ export function createImageService(images) {
       await recordImageReferences(tx, kind, id, ids)
     },
     async list(user) { return (await images.list(user)).map(image => ({ ...image, url: `/api/images/${image.id}/content` })) },
+    async page(user, query) {
+      const input = pageInput(query)
+      return pageResult(await images.page(user, input), input.limit, image => ({ ...image, url: `/api/images/${image.id}/content` }))
+    },
     async create(user, input) {
       requireEdit(user)
       const scope = input.scope ?? 'personal'

@@ -17,6 +17,14 @@ export function createImageRepository(query) {
     async list(user) {
       return (await query(`SELECT i.id,i.name,i.mime,i.scope,i.owner_id,i.created_at,u.email AS creator FROM images i LEFT JOIN users u ON u.id=i.created_by WHERE i.deleted_at IS NULL AND (i.scope='catalog' OR i.owner_id=$1 OR $2='Admin') ORDER BY i.created_at DESC`, [user.id, user.role])).rows
     },
+    async page(user, { limit, after }) {
+      return (await query(`SELECT i.id,i.name,i.mime,i.scope,i.owner_id,i.created_at,u.email AS creator,
+        to_char(i.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time
+        FROM images i LEFT JOIN users u ON u.id=i.created_by
+        WHERE i.deleted_at IS NULL AND (i.scope='catalog' OR i.owner_id=$1 OR $2='Admin')
+        AND ($3::timestamptz IS NULL OR (i.created_at,i.id)<($3::timestamptz,$4::uuid))
+        ORDER BY i.created_at DESC,i.id DESC LIMIT $5`, [user.id, user.role, after?.at || null, after?.id || null, limit + 1])).rows
+    },
     async create(id, name, mime, bytes, authorId, ownerId, scope) {
       await query('INSERT INTO images(id,name,mime,data,created_by,owner_id,scope) VALUES($1,$2,$3,$4,$5,$6,$7)', [id, name, mime, bytes, authorId, ownerId, scope])
     },
