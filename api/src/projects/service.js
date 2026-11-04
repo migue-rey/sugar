@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { createPatch } from 'diff'
 import { error, requiredText } from '../shared/http.js'
 import { requireAdmin, requireEdit, requireProjectAccess, projectPermissions } from '../auth/policies.js'
-import { normalizeColorLiterals, stringify, validateProject } from '../model.js'
+import { normalizeColorLiterals, stringify, validateProject, revisionSummary } from '../model.js'
 import { repositorySettings } from './validation.js'
 import { pageInput, pageResult, revisionPageInput, revisionPageResult, bigintPageInput, identifierPageResult } from '../shared/pagination.js'
 
@@ -60,11 +60,11 @@ export function createProjectService({ projects, transaction, storage, enqueue, 
     async create(user, input) {
       requireEdit(user)
       const yaml = normalizeColorLiterals(requiredText(input.yaml || stringify({ name: input.name || 'Nuevo proyecto', nodes: [], edges: [] }), 'YAML'))
-      const project = validateProject(yaml), id = crypto.randomUUID()
+      const project = validateProject(yaml), id = crypto.randomUUID(), summary = revisionSummary(input.summary, 'Proyecto creado')
       await write(id, async tx => {
         await projects.create(id, project.name, yaml, user.id, tx)
         await attachImages(yaml, 'project', id, user, tx)
-        await projects.addRevision(id, 1, yaml, user.id, input.summary || 'Proyecto creado', tx)
+        await projects.addRevision(id, 1, yaml, user.id, summary, tx)
       })
       return { id, revision: 1 }
     },
@@ -107,13 +107,14 @@ export function createProjectService({ projects, transaction, storage, enqueue, 
       await get(id, user, { edit: true })
       const yaml = normalizeColorLiterals(requiredText(input.yaml, 'YAML')), project = validateProject(yaml), expected = Number(input.expectedRevision)
       if (!Number.isInteger(expected) || expected < 1) error(400, 'Revisión esperada inválida')
+      const summary = revisionSummary(input.summary, 'Proyecto actualizado')
       const revision = await write(id, async tx => {
         const current = await get(id, user, { edit: true }, tx, true)
         const saved = await projects.save(id, expected, project.name, yaml, tx)
         if (!saved) error(409, 'El proyecto cambió; recarga antes de guardar')
         const revision = saved.revision
         await attachImages(yaml, 'project', id, user, tx)
-        await projects.addRevision(id, revision, yaml, user.id, input.summary || 'Proyecto actualizado', tx)
+        await projects.addRevision(id, revision, yaml, user.id, summary, tx)
         if (current.sync_repository) await enqueue('project', id, revision, yaml, tx, { repository: current.sync_repository, branch: current.sync_branch })
         return revision
       })

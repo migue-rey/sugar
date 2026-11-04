@@ -4,8 +4,15 @@ const directions = ['in', 'out', 'bidirectional']
 const fail = (message) => { throw Object.assign(new Error(message), { status: 400 }) }
 const object = (v) => v && typeof v === 'object' && !Array.isArray(v)
 const string = (v) => typeof v === 'string' && v.trim().length > 0
-export const documentLimits = Object.freeze({ yamlBytes: 2_000_000, depth: 32, values: 200_000, nodes: 500, edges: 2000, portsPerBlock: 128, portsPerProject: 10_000 })
+export const documentLimits = Object.freeze({ yamlBytes: 2_000_000, depth: 32, values: 200_000, nodes: 500, edges: 2000, portsPerBlock: 128, portsPerProject: 10_000, nameBytes: 800, descriptionBytes: 8000, identifierBytes: 256, protocolBytes: 400, summaryBytes: 8000, propertyKeys: 256, propertyKeyBytes: 200, links: 64 })
 const exceeds = (subject, maximum) => fail(`${subject}: máximo ${maximum}; reduce el contenido / maximum ${maximum}; reduce the content`)
+const boundedText = (value, maximum, label) => { if (Buffer.byteLength(value, 'utf8') > maximum) exceeds(label + ' UTF-8 bytes', maximum) }
+export function revisionSummary(value, fallback) {
+  if (value == null || value === '') return fallback
+  if (typeof value !== 'string') fail('Resumen inválido / Invalid summary')
+  boundedText(value, documentLimits.summaryBytes, 'Resumen / Summary')
+  return value.trim() || fallback
+}
 export function validateDocumentBudget(value, kind) {
   let blocks = [value]
   if (kind === 'project') {
@@ -64,22 +71,33 @@ export function parseYaml(text) {
 export function validateBlock(text) { return validateBlockValue(parseYaml(text)) }
 function validateBlockValue(b) {
   if (!object(b) || !string(b.name) || !string(b.function)) fail('El bloque requiere name y function')
+  boundedText(b.name, documentLimits.nameBytes, 'Nombre / Name')
+  boundedText(b.function, documentLimits.descriptionBytes, 'Función / Function')
   if (b.category != null && (typeof b.category !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(b.category))) fail('category debe ser un identificador de categoría válido')
   if (b.subcategory != null && (typeof b.subcategory !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(b.subcategory))) fail('subcategory debe ser un identificador válido')
   if (b.subcategory && !b.category) fail('subcategory requiere category')
+  if (typeof b.category === 'string') boundedText(b.category, documentLimits.identifierBytes, 'Categoría / Category')
+  if (typeof b.subcategory === 'string') boundedText(b.subcategory, documentLimits.identifierBytes, 'Subcategoría / Subcategory')
   if (b.model != null && typeof b.model !== 'string') fail('model debe ser texto')
+  if (typeof b.model === 'string') boundedText(b.model, documentLimits.nameBytes, 'Modelo / Model')
   if (b.color != null && (typeof b.color !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(b.color))) fail('color del bloque debe ser RGB hexadecimal, por ejemplo "#FF0000"')
   if (b.image != null && b.image !== '') {
     if (typeof b.image !== 'string' || b.image.length > 2048 || !(b.image.startsWith('https://') || /^\/api\/images\/[0-9a-f-]{36}\/content$/.test(b.image))) fail('image debe ser una URL HTTPS o una ruta de la galería')
     if (b.image.startsWith('https://')) { try { new URL(b.image) } catch { fail('URL de imagen inválida') } }
   }
   if (b.properties != null && !object(b.properties)) fail('properties debe ser un mapa')
+  if (b.properties) {
+    const keys = Object.keys(b.properties)
+    if (keys.length > documentLimits.propertyKeys) exceeds('Propiedades por bloque / Properties per block', documentLimits.propertyKeys)
+    for (const key of keys) boundedText(key, documentLimits.propertyKeyBytes, 'Nombre de propiedad / Property name')
+  }
   if (b.properties?.notes != null && typeof b.properties.notes !== 'string') fail('properties.notes debe ser texto')
   if (b.properties?.url != null && b.properties.url !== '') {
     if (!webUrl(b.properties.url)) fail('properties.url debe ser una URL HTTP o HTTPS')
   }
   if (b.properties?.urls != null) {
     if (!Array.isArray(b.properties.urls)) fail('properties.urls debe ser una lista de enlaces')
+    if (b.properties.urls.length > documentLimits.links) exceeds('Enlaces por bloque / Links per block', documentLimits.links)
     for (const entry of b.properties.urls) {
       if (!object(entry) || Object.keys(entry).length !== 1) fail('Cada elemento de properties.urls debe tener un nombre y una URL')
       const [label, url] = Object.entries(entry)[0]
@@ -91,6 +109,9 @@ function validateBlockValue(b) {
   const ids = new Set()
   for (const p of b.ports) {
     if (!object(p) || !string(p.id) || !string(p.label) || !string(p.protocol) || !directions.includes(p.direction)) fail('Puerto inválido: id, label, protocol y direction son obligatorios')
+    boundedText(p.id, documentLimits.identifierBytes, 'Identificador / Identifier')
+    boundedText(p.label, documentLimits.nameBytes, 'Etiqueta / Label')
+    boundedText(p.protocol, documentLimits.protocolBytes, 'Protocolo / Protocol')
     if (ids.has(p.id)) fail(`Puerto duplicado: ${p.id}`)
     ids.add(p.id)
     if ('color' in p && (typeof p.color !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(p.color))) fail('color debe ser RGB hexadecimal, por ejemplo "#FF0000"')
@@ -102,10 +123,12 @@ function validateBlockValue(b) {
 export function validateProject(text) {
   const p = parseYaml(text)
   if (!object(p) || !string(p.name) || !Array.isArray(p.nodes) || !Array.isArray(p.edges)) fail('El proyecto requiere name, nodes y edges')
+  boundedText(p.name, documentLimits.nameBytes, 'Nombre / Name')
   validateDocumentBudget(p, 'project')
   const nodes = new Map()
   for (const n of p.nodes) {
     if (!object(n) || !string(n.id) || !object(n.position) || !Number.isFinite(n.position.x) || !Number.isFinite(n.position.y) || !object(n.block)) fail('Nodo inválido')
+    boundedText(n.id, documentLimits.identifierBytes, 'Identificador / Identifier')
     validateBlockValue(n.block)
     if (nodes.has(n.id)) fail(`Nodo duplicado: ${n.id}`)
     nodes.set(n.id, n)
@@ -114,6 +137,7 @@ export function validateProject(text) {
   const edgeIds = new Set()
   for (const e of p.edges) {
     if (!object(e) || !string(e.id) || !string(e.source) || !string(e.target) || !string(e.sourcePort) || !string(e.targetPort)) fail('Conexión inválida')
+    for (const key of ['id','source','target','sourcePort','targetPort']) boundedText(e[key], documentLimits.identifierBytes, 'Identificador / Identifier')
     if (e.route != null && (!object(e.route) || !Number.isFinite(e.route.x) || !Number.isFinite(e.route.y))) fail('La posición de la conexión debe tener coordenadas x e y válidas')
     if (e.route && 'targetX' in e.route && !Number.isFinite(e.route.targetX)) fail('La posición del tramo junto al destino debe tener una coordenada targetX válida')
     if (edgeIds.has(e.id)) fail(`Conexión duplicada: ${e.id}`)

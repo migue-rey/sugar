@@ -3,7 +3,7 @@ import { createPatch } from 'diff'
 import { error, requiredText } from '../shared/http.js'
 import { requireAdmin } from '../auth/policies.js'
 import { libraryOwner, libraryPermissions, requireLibraryAccess } from '../library/access.js'
-import { normalizeColorLiterals, stringify, validateBlock } from '../model.js'
+import { normalizeColorLiterals, stringify, validateBlock, revisionSummary } from '../model.js'
 import { revisionPageInput, revisionPageResult, identifierPageInput, identifierPageResult } from '../shared/pagination.js'
 
 export function createBlockService({ blocks, transaction, storage, validateCategory, replaceEmbeddedImages, attachImages = async () => {} }) {
@@ -22,7 +22,7 @@ export function createBlockService({ blocks, transaction, storage, validateCateg
     },
     async create(user, input) {
       const ownerId = libraryOwner(user, input.scope)
-      const yaml = normalizeColorLiterals(requiredText(input.yaml, 'YAML')), block = validateBlock(yaml), id = crypto.randomUUID(), summary = input.summary || 'Bloque creado'
+      const yaml = normalizeColorLiterals(requiredText(input.yaml, 'YAML')), block = validateBlock(yaml), id = crypto.randomUUID(), summary = revisionSummary(input.summary, 'Bloque creado')
       await write(id, async tx => {
         await validateCategory(block, tx, false, ownerId)
         await blocks.create(id, block, tx, ownerId)
@@ -83,6 +83,7 @@ export function createBlockService({ blocks, transaction, storage, validateCateg
       await get(id, user, true)
       const yaml = normalizeColorLiterals(requiredText(input.yaml, 'YAML')), block = validateBlock(yaml), expected = Number(input.expectedVersion)
       if (!Number.isInteger(expected) || expected < 1) error(400, 'Versión esperada inválida')
+      const summary = revisionSummary(input.summary, 'Bloque actualizado')
       const version = await write(id, async tx => {
         const current = await get(id, user, true, tx, true)
         await validateCategory(block, tx, false, current.owner_id)
@@ -90,7 +91,7 @@ export function createBlockService({ blocks, transaction, storage, validateCateg
         if (!saved) error(409, 'El bloque cambió; recarga antes de guardar')
         const version = saved.latest_version
         await attachImages(yaml, 'block', id, user, tx)
-        await blocks.addVersion(id, version, yaml, user.id, input.summary || 'Bloque actualizado', tx)
+        await blocks.addVersion(id, version, yaml, user.id, summary, tx)
         return version
       })
       return { version }
