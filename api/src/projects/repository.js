@@ -14,6 +14,24 @@ export function createProjectRepository(query) {
     async list(user) {
       return (await query(`SELECT p.id,p.name,p.revision,p.created_at,p.visibility,p.created_by,p.sync_repository,p.sync_branch,p.settings_version,u.email AS creator ${join} LEFT JOIN project_members m ON m.project_id=p.id AND m.user_id=$1 WHERE p.deleted_at IS NULL AND (p.visibility='public' OR p.created_by=$1 OR $2='Admin' OR m.user_id IS NOT NULL) ORDER BY p.name`, [user.id, user.role])).rows
     },
+    async page(user, { limit, after }) {
+      const values = [], bind = value => { values.push(value); return '$' + values.length }
+      const boundary = after ? `AND (p.created_at,p.id)<(${bind(after.at)}::timestamptz,${bind(after.id)}::uuid)` : ''
+      const cap = bind(limit + 1)
+      const branch = (filter, membership = '') => `(SELECT p.id,p.name,p.revision,p.created_at,p.visibility,p.created_by,p.sync_repository,p.sync_branch,p.settings_version
+        FROM projects p ${membership} WHERE p.deleted_at IS NULL ${filter} ${boundary} ORDER BY p.created_at DESC,p.id DESC LIMIT ${cap})`
+      let candidates
+      if (user.role === 'Admin') candidates = branch('')
+      else {
+        const owner = bind(user.id) + '::uuid'
+        candidates = branch(`AND p.created_by=${owner}`) + ' UNION ALL ' +
+          branch(`AND p.visibility='public' AND p.created_by IS DISTINCT FROM ${owner}`) + ' UNION ALL ' +
+          branch(`AND p.visibility<>'public' AND p.created_by IS DISTINCT FROM ${owner}`, `JOIN project_members m ON m.project_id=p.id AND m.user_id=${owner}`)
+      }
+      return (await query(`SELECT p.*,u.email AS creator,
+        to_char(p.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time
+        FROM (${candidates}) p LEFT JOIN users u ON u.id=p.created_by ORDER BY p.created_at DESC,p.id DESC LIMIT ${cap}`, values)).rows
+    },
     async members(id) {
       return (await query('SELECT m.user_id,u.email,m.role,u.active FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=$1 ORDER BY u.email', [id])).rows
     },

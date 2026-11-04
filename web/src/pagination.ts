@@ -1,7 +1,7 @@
 import { ref, shallowRef } from 'vue'
 type Page<T> = { items: T[]; nextCursor: string | null }
 
-export function useGalleryPages<T extends { id: string }>(request: (path: string) => Promise<Page<T>>) {
+export function usePagedList<T extends { id: string }>(request: (path: string) => Promise<Page<T>>, endpoint: string) {
   const items = shallowRef<T[]>([]), cursor = ref<string | null>(null), loading = ref(false)
   let generation = 0
   function reset() { generation++; items.value = []; cursor.value = null; loading.value = false }
@@ -11,7 +11,7 @@ export function useGalleryPages<T extends { id: string }>(request: (path: string
     const current = generation, after = first ? null : cursor.value
     loading.value = true
     try {
-      const result = await request('/images/page?limit=30' + (after ? '&cursor=' + encodeURIComponent(after) : ''))
+      const result = await request(endpoint + '?limit=30' + (after ? '&cursor=' + encodeURIComponent(after) : ''))
       if (current !== generation) return
       const merged = new Map((first ? [] : items.value).map(item => [item.id, item]))
       for (const item of result.items) merged.set(item.id, item)

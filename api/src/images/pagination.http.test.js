@@ -12,16 +12,16 @@ test('gallery pages require a live session and reject invalid pagination before 
   }
   const app = createApp({ q, secret, registrationConfig: { enabled: false }, recoveryConfig: { enabled: false } })
   const server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve)); t.after(() => new Promise(resolve => server.close(resolve)))
-  const base = `http://127.0.0.1:${server.address().port}/api/images/page`
-  let response = await fetch(base)
+  const base = `http://127.0.0.1:${server.address().port}/api`
+  let response = await fetch(base + '/images/page')
   assert.equal(response.status, 401); assert.equal(lookups, 0)
   const cookie = 'session=' + jwt.sign({ id, sid }, secret, { expiresIn: 60 })
-  for (const query of ['limit=101','limit[]=2','cursor=invalid','scope=all']) {
-    response = await fetch(base + '?' + query, { headers: { cookie } })
+  for (const path of ['/images/page','/projects/page']) for (const query of ['limit=101','limit[]=2','cursor=invalid','scope=all']) {
+    response = await fetch(base + path + '?' + query, { headers: { cookie } })
     assert.equal(response.status, 400)
     assert.equal(response.headers.get('cache-control'), 'private, no-store')
     assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
     assert.equal(response.headers.get('etag'), null)
   }
-  assert.equal(lookups, 4)
+  assert.equal(lookups, 8)
 })

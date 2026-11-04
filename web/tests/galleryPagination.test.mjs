@@ -1,14 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { useGalleryPages } from '../src/galleryPagination.ts'
+import { usePagedList } from '../src/pagination.ts'
 test('gallery appends bounded pages, ignores double clicks and retains a failed page for retry', async () => {
   const requests = []; let resolve, fail = false
-  const pages = useGalleryPages(async path => {
+  const pages = usePagedList(async path => {
     requests.push(path)
     if (requests.length === 1) return { items: [{ id: 'one' }], nextCursor: 'first-cursor' }
     if (fail) throw Error('offline')
     return new Promise(r => { resolve = r })
-  })
+  }, '/images/page')
   await pages.first(); assert.equal(pages.items.value.length, 1)
   const pending = pages.more(); await pages.more(); assert.equal(requests.length, 2)
   resolve({ items: [{ id: 'one' }, { id: 'two' }], nextCursor: 'second-cursor' }); await pending
@@ -21,7 +21,7 @@ test('gallery appends bounded pages, ignores double clicks and retains a failed 
 })
 test('logout/account changes and newer refreshes discard both stale results and stale errors', async () => {
   const callbacks = []
-  const pages = useGalleryPages(() => new Promise((resolve, reject) => callbacks.push({ resolve, reject })))
+  const pages = usePagedList(() => new Promise((resolve, reject) => callbacks.push({ resolve, reject })), '/images/page')
   const old = pages.first(); pages.reset()
   callbacks[0].resolve({ items: [{ id: 'private-old-account' }], nextCursor: 'old' }); await old
   assert.deepEqual(pages.items.value, []); assert.equal(pages.cursor.value, null)

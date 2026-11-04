@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useGalleryPages } from './galleryPagination'
+import { usePagedList } from './pagination'
 import { sessionRequest } from './sessionRequest'
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { VueFlow, Handle, Position, useVueFlow, type Connection } from '@vue-flow/core'
@@ -46,7 +46,9 @@ const loginEmail = ref(''), loginPassword = ref('')
 const publicLanguage = ref<'es' | 'en'>('es'), registrationEnabled = ref(false), registrationOpen = ref(false)
 const verificationToken = ref(takeVerificationToken(window.location, window.history))
 const accountAction = ref(takeAccountAction(window.location, window.history)), recoveryOpen = ref(false), recoveryEnabled = ref(false)
-const projects = ref<ProjectItem[]>([]), blocks = ref<LibraryItem[]>([]), users = ref<User[]>([])
+const projectPages = usePagedList<ProjectItem>(path => api(path), '/projects/page')
+const projects = projectPages.items, projectsCursor = projectPages.cursor, projectsLoading = projectPages.loading
+const blocks = ref<LibraryItem[]>([]), users = ref<User[]>([])
 const categories = ref<Category[]>([])
 const newCategoryName = ref(''), newCategoryParent = ref(''), categoryEdits = ref<Record<string, string>>({})
 const newCategoryIcon = ref<string | null>(''), categoryIconEdits = ref<Record<string, CategoryIconKey | null>>({})
@@ -74,7 +76,7 @@ const createEmail = ref(''), createPassword = ref(''), createRole = ref<'view' |
 const currentPassword = ref(''), newPassword = ref('')
 const importInput = ref<HTMLInputElement | null>(null)
 const galleryInput = ref<HTMLInputElement | null>(null)
-const gallery = useGalleryPages<{ id: string; name: string; mime: string; scope: 'personal' | 'catalog'; url: string; creator: string; created_at: string }>(path => api(path))
+const gallery = usePagedList<{ id: string; name: string; mime: string; scope: 'personal' | 'catalog'; url: string; creator: string; created_at: string }>(path => api(path), '/images/page')
 const galleryImages = gallery.items, galleryCursor = gallery.cursor, galleryLoading = gallery.loading
 const { screenToFlowCoordinate, fitView } = useVueFlow()
 watch([sidebarCollapsed, paletteCollapsed], () => { if (page.value === 'editor') setTimeout(() => fitView({ padding: 0.1, maxZoom: 1 }), 250) })
@@ -88,10 +90,10 @@ const blockCategoryRoots = computed(() => rootCategories.value.filter(c => !c.ow
 watch(newCategoryScope, () => { newCategoryParent.value = '' })
 watch(() => user.value ? user.value.id + ':' + user.value.role : '', () => {
   newCategoryScope.value = user.value?.role === 'Admin' ? 'catalog' : 'personal'
-  gallery.reset(); imageScope.value = 'personal'
+  gallery.reset(); projectPages.reset(); imageScope.value = 'personal'
   blockSelection.value = null; blockDraft.value = ''; blockVersions.value = []; blockDiffText.value = ''; showNewBlock.value = false
   newCategoryName.value = ''; newCategoryParent.value = ''; categoryEdits.value = {}; categoryIconEdits.value = {}
-})
+}, { flush: 'sync' })
 const projectOwner = computed(() => !!project.value && (admin.value || project.value.created_by === user.value?.id))
 const projectSettingsDirty = computed(() => !!project.value && (projectSettings.value.visibility !== project.value.visibility || projectSettings.value.sync_repository !== (project.value.sync_repository || '') || projectSettings.value.sync_branch !== (project.value.sync_branch || 'main')))
 const selected = computed(() => diagram.value.nodes.find(n => n.id === selectedNode.value) || null)
@@ -114,9 +116,21 @@ async function run(fn: () => Promise<void>) {
   try { await fn() } catch (e: unknown) { errorMessage.value = errorText(e) } finally { busy.value = false }
 }
 function errorText(error: unknown) { return error instanceof Error ? error.message : String(error) }
-async function loadBasics() { const [loadedProjects, loadedBlocks, loadedCategories] = await Promise.all([api('/projects'), api('/blocks'), api('/categories')]); projects.value = loadedProjects; blocks.value = loadedBlocks; categories.value = loadedCategories; categoryEdits.value = Object.fromEntries(categories.value.map(category => [category.id, category.name])); categoryIconEdits.value = Object.fromEntries(categories.value.map(category => [category.id,category.icon])); if (!rootCategories.value.some(category => category.id === newCategoryParent.value)) newCategoryParent.value = '' }
+async function loadBasics() {
+  const actor = user.value ? user.value.id + ':' + user.value.role : ''
+  const [, loadedBlocks, loadedCategories] = await Promise.all([projectPages.first(), api('/blocks'), api('/categories')])
+  if (actor !== (user.value ? user.value.id + ':' + user.value.role : '')) return
+  blocks.value = loadedBlocks; categories.value = loadedCategories
+  categoryEdits.value = Object.fromEntries(categories.value.map(category => [category.id, category.name])); categoryIconEdits.value = Object.fromEntries(categories.value.map(category => [category.id,category.icon]))
+  if (!rootCategories.value.some(category => category.id === newCategoryParent.value)) newCategoryParent.value = ''
+}
+async function moreProjects() {
+  if (busy.value || projectsLoading.value) return
+  errorMessage.value = ''; notice.value = ''
+  try { await projectPages.more() } catch (e) { if (page.value === 'projects') errorMessage.value = errorText(e) }
+}
 async function signIn() { await run(async () => { user.value = await api('/login', 'POST', { email: loginEmail.value, password: loginPassword.value }); await loadBasics(); page.value = 'projects'; loginPassword.value = '' }) }
-function endSession() { user.value = null; project.value = null; projects.value = []; blocks.value = []; categories.value = []; gallery.reset(); users.value = []; page.value = 'projects'; loginPassword.value = ''; currentPassword.value = ''; newPassword.value = ''; createPassword.value = ''; createEmail.value = '' }
+function endSession() { user.value = null; project.value = null; projectPages.reset(); blocks.value = []; categories.value = []; gallery.reset(); users.value = []; page.value = 'projects'; loginPassword.value = ''; currentPassword.value = ''; newPassword.value = ''; createPassword.value = ''; createEmail.value = '' }
 function handleSessionExpired() { if (user.value) expireSession() }
 function expireSession() { const message = t('sessionExpired'); endSession(); notice.value = message }
 async function signOut() { await run(async () => { await api('/logout', 'POST'); endSession() }) }
@@ -385,7 +399,7 @@ onMounted(async () => {
         <template v-if="page === 'projects'"><header class="page-header"><div><div class="eyebrow">{{ t('workspace') }}</div><h1>{{ t('projects') }}</h1><p>{{ t('welcomeSub') }}</p></div><div class="header-actions"><button v-if="editable" class="secondary" @click="importInput?.click()"><ArrowUpTrayIcon class="ui-icon" aria-hidden="true" /> {{ t('import') }}</button><input ref="importInput" type="file" accept=".yaml,.yml,text/yaml" hidden @change="importProject(($event.target as HTMLInputElement).files?.[0])"><button v-if="editable" class="primary" @click="showNewProject=true"><PlusIcon class="ui-icon" aria-hidden="true" /> {{ t('newProject') }}</button></div></header>
           <div v-if="showNewProject" class="inline-form"><input v-model="newProjectName" :placeholder="t('name')" @keyup.enter="createProject"><button class="primary" @click="createProject">{{ t('create') }}</button><button class="secondary" @click="showNewProject=false">{{ t('cancel') }}</button></div>
           <div v-if="!projects.length" class="empty-state"><div><RectangleGroupIcon class="ui-icon icon-empty" aria-hidden="true" /></div><h2>{{ t('noProjects') }}</h2><p>{{ t('welcomeSub') }}</p></div>
-          <div class="project-grid"><article v-for="p in projects" :key="p.id" class="project-card" @click="openProject(p.id)"><div class="project-icon"><FolderIcon class="ui-icon icon-card" aria-hidden="true" /></div><h2>{{ p.name }}</h2><p>{{ t('revision') }} {{ p.revision }} · {{ p.visibility === 'public' ? t('public') : t('private') }}</p><p>{{ t('creator') }}: {{ p.creator || t('unknownCreator') }}</p><div class="card-bottom"><button class="link-button" @click.stop="openProjectWithSettings(p.id)"><Cog6ToothIcon class="ui-icon" aria-hidden="true" /> {{ t('projectSettings') }}</button><button v-if="admin" class="text-danger" @click.stop="deleteProject(p.id)"><TrashIcon class="ui-icon" aria-hidden="true" /> {{ t('delete') }}</button><span v-else><ArrowTopRightOnSquareIcon class="ui-icon" aria-hidden="true" /></span></div></article></div>
+          <div class="project-grid"><article v-for="p in projects" :key="p.id" class="project-card" @click="openProject(p.id)"><div class="project-icon"><FolderIcon class="ui-icon icon-card" aria-hidden="true" /></div><h2>{{ p.name }}</h2><p>{{ t('revision') }} {{ p.revision }} · {{ p.visibility === 'public' ? t('public') : t('private') }}</p><p>{{ t('creator') }}: {{ p.creator || t('unknownCreator') }}</p><div class="card-bottom"><button class="link-button" @click.stop="openProjectWithSettings(p.id)"><Cog6ToothIcon class="ui-icon" aria-hidden="true" /> {{ t('projectSettings') }}</button><button v-if="admin" class="text-danger" @click.stop="deleteProject(p.id)"><TrashIcon class="ui-icon" aria-hidden="true" /> {{ t('delete') }}</button><span v-else><ArrowTopRightOnSquareIcon class="ui-icon" aria-hidden="true" /></span></div></article></div><div class="header-actions project-pagination"><p class="hint" role="status">{{ t('projectsLoaded').replace('{count}', String(projects.length)) }}</p><button v-if="projectsCursor" class="secondary" :disabled="busy || projectsLoading" @click="moreProjects">{{ t('loadMoreProjects') }}</button></div>
         </template>
         <template v-else-if="page === 'editor' && project">
           <div class="editor-layout" :class="{'palette-hidden':paletteCollapsed}" :style="{'--yaml-panel-width': yamlPanelWidth + 'px'}"><aside class="palette"><div class="section-heading"><h3>{{ t('blocks') }}</h3><span>{{ blocks.length }}</span></div><p class="hint">{{ t('dragHint') }}</p><BlockCatalog :items="blocks" :categories="categories" mode="palette" :editable="editable" :language="lang" @add="makeNode" @dragstart="dragStart" /></aside>

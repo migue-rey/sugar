@@ -4,6 +4,7 @@ import { error, requiredText } from '../shared/http.js'
 import { requireAdmin, requireEdit, requireProjectAccess, projectPermissions } from '../auth/policies.js'
 import { normalizeColorLiterals, stringify, validateProject } from '../model.js'
 import { repositorySettings } from './validation.js'
+import { pageInput, pageResult } from '../shared/pagination.js'
 
 export function createProjectService({ projects, transaction, enqueue, categoryIcons, replaceEmbeddedImages, attachImages = async () => {} }) {
   const get = async (id, user, options, tx, lock = false) => {
@@ -17,6 +18,10 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
   return {
     get,
     list: user => projects.list(user),
+    async page(user, query) {
+      const input = pageInput(query)
+      return pageResult(await projects.page(user, input), input.limit, item => item)
+    },
     async public(id) {
       const project = await projects.public(id)
       if (!project) error(404, 'Proyecto público no encontrado')
