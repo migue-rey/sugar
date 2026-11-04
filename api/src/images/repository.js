@@ -30,8 +30,8 @@ export function createImageRepository(query) {
         FROM (${candidates}) i LEFT JOIN users u ON u.id=i.created_by
         ORDER BY i.created_at DESC,i.id DESC LIMIT ${cap}`, values)).rows
     },
-    async create(id, name, mime, bytes, authorId, ownerId, scope) {
-      await query('INSERT INTO images(id,name,mime,data,created_by,owner_id,scope) VALUES($1,$2,$3,$4,$5,$6,$7)', [id, name, mime, bytes, authorId, ownerId, scope])
+    async create(id, name, mime, bytes, authorId, ownerId, scope, execute = query) {
+      await execute('INSERT INTO images(id,name,mime,data,created_by,owner_id,scope) VALUES($1,$2,$3,$4,$5,$6,$7)', [id, name, mime, bytes, authorId, ownerId, scope])
     },
     async archive(id) { return (await query('UPDATE images SET deleted_at=now() WHERE id=$1 AND deleted_at IS NULL', [id])).rowCount },
   }

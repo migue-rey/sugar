@@ -6,7 +6,7 @@ import { imageIds, recordImageReferences } from './references.js'
 import { pageInput, pageResult } from '../shared/pagination.js'
 const validId = id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)
 
-export function createImageService(images) {
+export function createImageService(images, storage) {
   const content = async (id, user, tx) => {
     const image = validId(id) && await images.content(id, user, tx)
     if (!image) error(404, 'Imagen no encontrada')
@@ -37,7 +37,9 @@ export function createImageService(images) {
       if (scope === 'catalog') requireAdmin(user)
       const name = requiredText(input.name, 'Nombre').slice(0, 120), mime = String(input.mime || '')
       const bytes = imageBytes(mime, input.data), id = crypto.randomUUID(), ownerId = scope === 'personal' ? user.id : null
-      await images.create(id, name, mime, bytes, user.id, ownerId, scope)
+      const write = tx => images.create(id, name, mime, bytes, user.id, ownerId, scope, tx)
+      if (storage) await storage.create(ownerId, bytes.length, write)
+      else await write()
       return { id, name, mime, scope, owner_id: ownerId, url: `/api/images/${id}/content` }
     },
     async archive(id, user) {

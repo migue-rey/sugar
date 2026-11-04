@@ -11,7 +11,7 @@ export function imageBytes(mime, data) {
   if (!valid) throw Object.assign(new Error('El contenido no coincide con el tipo de imagen.'), { status: 400 })
   return bytes
 }
-export async function replaceEmbeddedImages(yaml, kind, tx, { ownerId = null, catalog = false } = {}) {
+export async function replaceEmbeddedImages(yaml, kind, tx, { ownerId = null, catalog = false, storage } = {}) {
   if (!yaml.includes('data:image/')) return yaml
   const doc = parseYaml(yaml)
   validateDocumentBudget(doc, kind)
@@ -22,6 +22,7 @@ export async function replaceEmbeddedImages(yaml, kind, tx, { ownerId = null, ca
     const match = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(block?.image || '')
     if (!match) continue
     const bytes = imageBytes(match[1], match[2])
+    if (storage) await storage.admit(tx, catalog ? null : ownerId, bytes.length)
     const id = crypto.randomUUID()
     await tx('INSERT INTO images(id,name,mime,data,owner_id,scope) VALUES($1,$2,$3,$4,$5,$6)', [id, `Imagen migrada ${id.slice(0, 8)}`, match[1], bytes, ownerId, catalog ? 'catalog' : 'personal'])
     block.image = `/api/images/${id}/content`

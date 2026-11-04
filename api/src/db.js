@@ -14,6 +14,7 @@ import { initRecoveryDb } from './recovery/repository.js'
 import { initGalleryPaginationDb } from './images/pagination.js'
 import { initProjectPaginationDb } from './projects/pagination.js'
 import { initBlockPaginationDb } from './blocks/pagination.js'
+import { initImageStorage } from './images/quotas.js'
 
 export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
 pool.on('error', error => reportFailure('Database pool error', error))
@@ -80,6 +81,7 @@ export async function initDb() {
   await bootstrapAdmin({ transaction })
   await migrateImageAccess(transaction)
   await initGalleryPaginationDb(q)
+  await initImageStorage(q)
   await initProjectPaginationDb(q)
   // Convert current documents once; historical revisions remain intact for audit.
   for (const row of (await q("SELECT id,revision,yaml,sync_repository,sync_branch,created_by FROM projects WHERE deleted_at IS NULL AND yaml LIKE '%data:image/%'")).rows) {
