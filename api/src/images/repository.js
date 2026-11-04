@@ -18,12 +18,17 @@ export function createImageRepository(query) {
       return (await query(`SELECT i.id,i.name,i.mime,i.scope,i.owner_id,i.created_at,u.email AS creator FROM images i LEFT JOIN users u ON u.id=i.created_by WHERE i.deleted_at IS NULL AND (i.scope='catalog' OR i.owner_id=$1 OR $2='Admin') ORDER BY i.created_at DESC`, [user.id, user.role])).rows
     },
     async page(user, { limit, after }) {
+      const values = [], bind = value => { values.push(value); return '$' + values.length }
+      const boundary = after ? `AND (i.created_at,i.id)<(${bind(after.at)}::timestamptz,${bind(after.id)}::uuid)` : ''
+      const cap = bind(limit + 1)
+      const branch = filter => `(SELECT i.id,i.name,i.mime,i.scope,i.owner_id,i.created_at,i.created_by FROM images i
+        WHERE i.deleted_at IS NULL ${filter} ${boundary} ORDER BY i.created_at DESC,i.id DESC LIMIT ${cap})`
+      // Disjoint partial-index scans cap candidate metadata before joining creator data.
+      const candidates = user.role === 'Admin' ? branch('') : branch(`AND i.owner_id=${bind(user.id)}::uuid AND i.scope<>'catalog'`) + ' UNION ALL ' + branch("AND i.scope='catalog'")
       return (await query(`SELECT i.id,i.name,i.mime,i.scope,i.owner_id,i.created_at,u.email AS creator,
         to_char(i.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time
-        FROM images i LEFT JOIN users u ON u.id=i.created_by
-        WHERE i.deleted_at IS NULL AND (i.scope='catalog' OR i.owner_id=$1 OR $2='Admin')
-        AND ($3::timestamptz IS NULL OR (i.created_at,i.id)<($3::timestamptz,$4::uuid))
-        ORDER BY i.created_at DESC,i.id DESC LIMIT $5`, [user.id, user.role, after?.at || null, after?.id || null, limit + 1])).rows
+        FROM (${candidates}) i LEFT JOIN users u ON u.id=i.created_by
+        ORDER BY i.created_at DESC,i.id DESC LIMIT ${cap}`, values)).rows
     },
     async create(id, name, mime, bytes, authorId, ownerId, scope) {
       await query('INSERT INTO images(id,name,mime,data,created_by,owner_id,scope) VALUES($1,$2,$3,$4,$5,$6,$7)', [id, name, mime, bytes, authorId, ownerId, scope])

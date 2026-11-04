@@ -4,6 +4,7 @@ import crypto from 'node:crypto'
 import pg from 'pg'
 import { createImageRepository } from './repository.js'
 import { createImageService } from './service.js'
+import { initGalleryPaginationDb } from './pagination.js'
 const url = process.env.API_TEST_DATABASE_URL
 test('gallery keysets keep ACLs, precision and stable ties without duplicates or skipping metadata', { skip: !url }, async t => {
   const schema = 'gallery_page_' + crypto.randomBytes(8).toString('hex'), admin = new pg.Pool({ connectionString: url })
@@ -12,6 +13,7 @@ test('gallery keysets keep ACLs, precision and stable ties without duplicates or
   t.after(async () => { await pool.end(); await admin.query('DROP SCHEMA ' + schema + ' CASCADE'); await admin.end() })
   await q('CREATE TABLE users(id uuid PRIMARY KEY,email text)')
   await q('CREATE TABLE images(id uuid PRIMARY KEY,name text,mime text,scope text,owner_id uuid,created_by uuid,created_at timestamptz,deleted_at timestamptz)')
+  await initGalleryPaginationDb(q); await initGalleryPaginationDb(q)
   const a = { id: crypto.randomUUID(), role: 'dev' }, b = { id: crypto.randomUUID(), role: 'dev' }, ids = []
   for (let i = 0; i < 9; i++) {
     const id = crypto.randomUUID(); ids.push(id)
@@ -29,6 +31,17 @@ test('gallery keysets keep ACLs, precision and stable ties without duplicates or
   const foreign = (await service.page(b, { limit: '1' })).nextCursor
   assert.ok((await service.page(a, { cursor: foreign })).items.every(row => !ids.slice(6,8).includes(row.id)))
   assert.equal((await service.page({ ...a, role: 'Admin' }, { limit: '100' })).items.length, 9)
+  // A catalog row with a legacy owner must still appear exactly once.
+  await q('UPDATE images SET owner_id=$1 WHERE id=$2', [a.id, ids[8]])
+  assert.equal((await service.page(a, { limit: '100' })).items.length, 7)
+  let statement, params
+  await createImageRepository(async (sql, args) => { statement = sql; params = args; return q(sql, args) }).page(a, { limit: 2, after: null })
+  const raw = await q(statement, params); assert.ok(raw.rows.length <= 3)
+  // Check index eligibility, not a production load/latency claim.
+  await q('SET enable_seqscan=off')
+  const plan = JSON.stringify((await q('EXPLAIN (FORMAT JSON) ' + statement, params)).rows)
+  assert.match(plan, /images_page_personal/); assert.match(plan, /images_page_catalog/)
+  await q('RESET enable_seqscan')
   await q('UPDATE images SET deleted_at=now() WHERE id=$1', [ids[0]])
   assert.equal((await service.page(a, {})).items.length, 6)
 })
