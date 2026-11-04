@@ -4,6 +4,7 @@ import { error, requiredText } from '../shared/http.js'
 import { requireAdmin } from '../auth/policies.js'
 import { libraryOwner, libraryPermissions, requireLibraryAccess } from '../library/access.js'
 import { normalizeColorLiterals, stringify, validateBlock } from '../model.js'
+import { revisionPageInput, revisionPageResult } from '../shared/pagination.js'
 
 export function createBlockService({ blocks, transaction, validateCategory, replaceEmbeddedImages, attachImages = async () => {} }) {
   const get = async (id, user, edit = false, tx, lock = false) => requireLibraryAccess(await blocks.find(id, tx, lock), user, edit)
@@ -21,6 +22,11 @@ export function createBlockService({ blocks, transaction, validateCategory, repl
       return { id, version: 1 }
     },
     versions: async (id, user) => { await get(id, user); return blocks.versions(id) },
+    async versionsPage(id, user, query) {
+      await get(id, user)
+      const options = revisionPageInput(query)
+      return revisionPageResult(await blocks.versionsPage(id, options), options.limit, 'version')
+    },
     async version(id, version, user) {
       await get(id, user)
       const saved = await blocks.version(id, version)

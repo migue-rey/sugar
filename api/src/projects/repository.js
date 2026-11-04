@@ -14,6 +14,10 @@ export function createProjectRepository(query) {
     async list(user) {
       return (await query(`SELECT p.id,p.name,p.revision,p.created_at,p.visibility,p.created_by,p.sync_repository,p.sync_branch,p.settings_version,u.email AS creator ${join} LEFT JOIN project_members m ON m.project_id=p.id AND m.user_id=$1 WHERE p.deleted_at IS NULL AND (p.visibility='public' OR p.created_by=$1 OR $2='Admin' OR m.user_id IS NOT NULL) ORDER BY p.name`, [user.id, user.role])).rows
     },
+    async access(id, userId) {
+      return (await query(`SELECT p.id,p.created_by,p.visibility,m.role AS member_role FROM projects p
+        LEFT JOIN project_members m ON m.project_id=p.id AND m.user_id=$2 WHERE p.id=$1 AND p.deleted_at IS NULL`, [id, userId])).rows[0]
+    },
     async page(user, { limit, after }) {
       const values = [], bind = value => { values.push(value); return '$' + values.length }
       const boundary = after ? `AND (p.created_at,p.id)<(${bind(after.at)}::timestamptz,${bind(after.id)}::uuid)` : ''
@@ -70,6 +74,13 @@ export function createProjectRepository(query) {
     async archive(id) { await query('UPDATE projects SET deleted_at=now() WHERE id=$1', [id]) },
     async revisions(id) {
       return (await query('SELECT r.revision,r.summary,r.created_at,u.email AS author FROM project_revisions r LEFT JOIN users u ON u.id=r.author_id WHERE project_id=$1 ORDER BY revision DESC', [id])).rows
+    },
+    async revisionsPage(id, { limit, before }) {
+      const args = [id], boundary = before === null ? '' : 'AND r.revision<$2::integer'
+      if (before !== null) args.push(before)
+      args.push(limit + 1)
+      return (await query(`SELECT r.revision,r.summary,r.created_at,u.email AS author FROM project_revisions r
+        LEFT JOIN users u ON u.id=r.author_id WHERE r.project_id=$1 ${boundary} ORDER BY r.revision DESC LIMIT $${args.length}`, args)).rows
     },
     async revision(id, revision) {
       return (await query('SELECT yaml FROM project_revisions WHERE project_id=$1 AND revision=$2', [id, revision])).rows[0]

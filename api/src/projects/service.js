@@ -4,7 +4,7 @@ import { error, requiredText } from '../shared/http.js'
 import { requireAdmin, requireEdit, requireProjectAccess, projectPermissions } from '../auth/policies.js'
 import { normalizeColorLiterals, stringify, validateProject } from '../model.js'
 import { repositorySettings } from './validation.js'
-import { pageInput, pageResult } from '../shared/pagination.js'
+import { pageInput, pageResult, revisionPageInput, revisionPageResult } from '../shared/pagination.js'
 
 export function createProjectService({ projects, transaction, enqueue, categoryIcons, replaceEmbeddedImages, attachImages = async () => {} }) {
   const get = async (id, user, options, tx, lock = false) => {
@@ -115,6 +115,11 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
     },
     async archive(id, user) { requireAdmin(user); await get(id, user); await projects.archive(id) },
     async revisions(id, user) { await get(id, user); return projects.revisions(id) },
+    async revisionsPage(id, user, query) {
+      requireProjectAccess(await projects.access(id, user.id), user)
+      const input = revisionPageInput(query)
+      return revisionPageResult(await projects.revisionsPage(id, input), input.limit, 'revision')
+    },
     async revision(id, user, revision) {
       await get(id, user)
       const saved = await projects.revision(id, revision)

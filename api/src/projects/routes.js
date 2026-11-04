@@ -24,6 +24,7 @@ export function registerProjectRoutes(app, projects) {
   app.put('/api/projects/:id', asyncRoute(async (req, res) => res.json(await projects.save(req.params.id, req.user, req.body))))
   app.delete('/api/projects/:id', asyncRoute(async (req, res) => { await projects.archive(req.params.id, req.user); res.json({ ok: true }) }))
   app.get('/api/projects/:id/revisions', asyncRoute(async (req, res) => res.json(await projects.revisions(req.params.id, req.user))))
+  app.get('/api/projects/:id/revisions/page', noStore, asyncRoute(async (req, res) => res.json(await projects.revisionsPage(req.params.id, req.user, req.query))))
   app.get('/api/projects/:id/revisions/:revision', asyncRoute(async (req, res) => res.type('text/yaml').send(await projects.revision(req.params.id, req.user, req.params.revision))))
   app.get('/api/projects/:id/diff', asyncRoute(async (req, res) => res.type('text/plain').send(await projects.diff(req.params.id, req.user, req.query))))
   app.post('/api/projects/:id/restore', asyncRoute(async (req, res) => res.json(await projects.restore(req.params.id, req.user, req.body))))

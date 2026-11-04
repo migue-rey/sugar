@@ -8,7 +8,7 @@ test('gallery appends bounded pages, ignores double clicks and retains a failed 
     if (requests.length === 1) return { items: [{ id: 'one' }], nextCursor: 'first-cursor' }
     if (fail) throw Error('offline')
     return new Promise(r => { resolve = r })
-  }, '/images/page')
+  }, '/images/page', item => item.id)
   await pages.first(); assert.equal(pages.items.value.length, 1)
   const pending = pages.more(); await pages.more(); assert.equal(requests.length, 2)
   resolve({ items: [{ id: 'one' }, { id: 'two' }], nextCursor: 'second-cursor' }); await pending
@@ -21,7 +21,7 @@ test('gallery appends bounded pages, ignores double clicks and retains a failed 
 })
 test('logout/account changes and newer refreshes discard both stale results and stale errors', async () => {
   const callbacks = []
-  const pages = usePagedList(() => new Promise((resolve, reject) => callbacks.push({ resolve, reject })), '/images/page')
+  const pages = usePagedList(() => new Promise((resolve, reject) => callbacks.push({ resolve, reject })), '/images/page', item => item.id)
   const old = pages.first(); pages.reset()
   callbacks[0].resolve({ items: [{ id: 'private-old-account' }], nextCursor: 'old' }); await old
   assert.deepEqual(pages.items.value, []); assert.equal(pages.cursor.value, null)
@@ -29,4 +29,11 @@ test('logout/account changes and newer refreshes discard both stale results and 
   callbacks[2].resolve({ items: [{ id: 'current-account' }], nextCursor: null }); await current
   callbacks[1].reject(Error('stale account failure')); await stale
   assert.deepEqual(pages.items.value, [{ id: 'current-account' }]); assert.equal(pages.loading.value, false)
+})
+test('revision metadata uses its own key and captures the current project endpoint per request', async () => {
+  const calls = []; let project = 'first'
+  const pages = usePagedList(async path => { calls.push(path); return { items: [{ revision: 2 }, { revision: 1 }], nextCursor: null } }, () => '/projects/' + project + '/revisions/page', item => String(item.revision))
+  await pages.first(); assert.equal(pages.items.value.length, 2)
+  project = 'second'; pages.reset(); await pages.first()
+  assert.deepEqual(calls, ['/projects/first/revisions/page?limit=30','/projects/second/revisions/page?limit=30'])
 })

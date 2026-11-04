@@ -1,9 +1,13 @@
 import { error } from './http.js'
 const invalid = () => error(400, 'Paginación inválida / Invalid pagination')
-export function pageInput(query = {}) {
+function pageLimit(query) {
   if (Object.keys(query).some(key => !['limit','cursor'].includes(key))) invalid()
   const limit = query.limit === undefined ? 30 : typeof query.limit === 'string' && /^[1-9]\d{0,2}$/.test(query.limit) ? Number(query.limit) : 0
   if (limit < 1 || limit > 100) invalid()
+  return limit
+}
+export function pageInput(query = {}) {
+  const limit = pageLimit(query)
   let after = null
   if (query.cursor !== undefined) {
     if (typeof query.cursor !== 'string' || query.cursor.length > 256 || !/^[A-Za-z0-9_-]+$/.test(query.cursor)) invalid()
@@ -15,6 +19,16 @@ export function pageInput(query = {}) {
     } catch { invalid() }
   }
   return { limit, after }
+}
+export function revisionPageInput(query = {}) {
+  const limit = pageLimit(query)
+  const cursor = query.cursor
+  if (cursor !== undefined && (typeof cursor !== 'string' || !/^[1-9]\d{0,9}$/.test(cursor) || Number(cursor) > 2147483647)) invalid()
+  return { limit, before: cursor === undefined ? null : Number(cursor) }
+}
+export function revisionPageResult(rows, limit, field) {
+  const items = rows.slice(0, limit)
+  return { items, nextCursor: rows.length > limit ? String(items.at(-1)[field]) : null }
 }
 export function pageResult(rows, limit, serialize) {
   const visible = rows.slice(0, limit), last = visible.at(-1)
