@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import { error, requiredText } from '../shared/http.js'
 import { requireAdmin } from '../auth/policies.js'
 
-export function createUserService(users, { runCredential = task => task() } = {}) {
+export function createUserService(users, { runCredential = task => task(), passwordChanged = async () => {} } = {}) {
   return {
     async preferences(user, input) {
       const language = input.language ?? null, theme = input.theme ?? null
@@ -11,14 +11,16 @@ export function createUserService(users, { runCredential = task => task() } = {}
       return users.preferences(user.id, language, theme)
     },
     async password(user, input) {
-      return runCredential(async () => {
-        const old = requiredText(input.currentPassword, 'Contraseña actual'), fresh = requiredText(input.newPassword, 'Nueva contraseña')
+      await runCredential(async () => {
+        const old = input?.currentPassword, fresh = input?.newPassword
+        if (typeof old !== 'string' || !old || typeof fresh !== 'string' || !fresh) error(400, 'Contraseña actual y nueva obligatorias')
         if (Buffer.byteLength(old) > 1024 || Buffer.byteLength(fresh) > 72) error(400, 'Contraseña demasiado larga')
         if (fresh.length < 12) error(400, 'La nueva contraseña debe tener al menos 12 caracteres')
         const expectedHash = await users.passwordHash(user.id)
         if (!(await bcrypt.compare(old, expectedHash))) error(400, 'Contraseña actual incorrecta')
         if (!(await users.password(user.id, await bcrypt.hash(fresh, 12), expectedHash))) error(409, 'La contraseña cambió; vuelve a entrar')
       })
+      await passwordChanged(user)
     },
     async list(user) { requireAdmin(user); return users.list() },
     async create(user, input) {

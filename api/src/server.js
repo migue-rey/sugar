@@ -4,9 +4,10 @@ import { createApp } from './app.js'
 import { q, pool, transaction, signingSecret } from './db.js'
 import { verifyRuntime } from './database/access.js'
 import { enqueue, startSync, syncOne } from './github.js'
-import { registrationConfig } from './registration/config.js'
+import { registrationConfig, emailFeatureConfig } from './registration/config.js'
 import { registrationSchemaReady } from './registration/repository.js'
 import { createMailService } from './mail/service.js'
+import { recoverySchemaReady } from './recovery/repository.js'
 
 async function start() {
   for (let attempt = 1; ; attempt++) {
@@ -19,10 +20,12 @@ async function start() {
   }
   const secret = await signingSecret()
   const registration = registrationConfig()
+  const recovery = emailFeatureConfig(process.env, 'ACCOUNT_RECOVERY_ENABLED')
   if (registration.enabled && !(await registrationSchemaReady(q))) throw Object.assign(Error('Registration requires database migration'), { code: 'DATABASE_CONFIG' })
+  if (recovery.enabled && !(await recoverySchemaReady(q))) throw Object.assign(Error('Account recovery requires database migration'), { code: 'DATABASE_CONFIG' })
   const mail = createMailService({ q })
-  if (registration.enabled) await mail.assertConfigured()
-  const app = createApp({ q, transaction, secret, enqueue, syncOne, registrationConfig: registration, mailService: mail })
+  if (registration.enabled || recovery.enabled) await mail.assertConfigured()
+  const app = createApp({ q, transaction, secret, enqueue, syncOne, registrationConfig: registration, recoveryConfig: recovery, mailService: mail })
   startSync()
   const listener = app.listen(Number(process.env.PORT || 3000), '0.0.0.0', () => console.log('API ready', listener.address().port))
 }

@@ -5,6 +5,8 @@ const identity = value => typeof value === 'string' && new RegExp(`^${uuid}$`).t
 const rules = [
   ['POST', '/login', 'auth.login'], ['POST', '/logout', 'auth.logout'],
   ['POST', '/registration/request', 'auth.registration_request'], ['POST', '/registration/verify', 'auth.registration_verify'],
+  ['POST', '/recovery/request', 'auth.recovery_request'], ['POST', '/recovery/reset', 'auth.password_reset'],
+  ['POST', '/recovery/confirm-email', 'auth.email_confirm'], ['POST', '/me/email', 'auth.email_request'],
   ['PUT', '/mail', 'mail.configure'], ['POST', '/mail/test', 'mail.connection_test'],
   ['POST', '/me/password', 'auth.password_change'],
   ['POST', '/me/sessions/revoke-others', 'auth.sessions_revoke'],

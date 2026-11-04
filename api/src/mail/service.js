@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { smtpOptions, createVerificationMailer, verifySmtp } from '../registration/mail.js'
+import { smtpOptions, createVerificationMailer, createAccountMailer, verifySmtp } from '../registration/mail.js'
 import { configError } from '../config/secrets.js'
 import { error } from '../shared/http.js'
 
@@ -32,6 +32,11 @@ function asEnv(config) { return { SMTP_HOST: config.host, SMTP_PORT: config.port
 
 export function createMailService({ q, env = process.env, transportFactory }) {
   let testing = false
+  let sending = 0
+  const send = async task => {
+    if (sending >= 2) throw Object.assign(Error('Envío ocupado / Delivery busy'), { status: 429, retryAfter: 15 })
+    sending++; try { return await task() } finally { sending-- }
+  }
   const saved = async () => (await q("SELECT value FROM settings WHERE key='mail_config'")).rows[0]?.value
   const fallback = () => ({ host: env.SMTP_HOST || '', port: Number(env.SMTP_PORT || 587), username: env.SMTP_USER || '', from: env.SMTP_FROM || '', password: env.SMTP_PASSWORD || '' })
   const privateConfig = async () => {
@@ -57,7 +62,8 @@ export function createMailService({ q, env = process.env, transportFactory }) {
       return this.read()
     },
     async assertConfigured() { smtpOptions(asEnv(await privateConfig())) },
-    async sendVerification(message) { return createVerificationMailer(asEnv(await privateConfig()), transportFactory)(message) },
+    async sendVerification(message) { return send(async () => createVerificationMailer(asEnv(await privateConfig()), transportFactory)(message)) },
+    async sendAccountMessage(message) { return send(async () => createAccountMailer(asEnv(await privateConfig()), transportFactory)(message)) },
     async test() {
       if (testing) throw Object.assign(Error('Prueba en curso / Test already running'), { status: 429, retryAfter: 15 })
       testing = true

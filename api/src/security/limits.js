@@ -78,9 +78,20 @@ export function createAccessControls({ secret, config = limitsConfig(), clock = 
     credentials: middleware(req => { spend('credentials:' + digest(req.user.id), config.credentials, accountWindow) }),
     registration: middleware(req => {
       const verify = req.path.toLowerCase().replace(/\/$/, '').endsWith('/verify')
-      spend('registration:global', 30, minute)
+      spend('account-mail:global', 30, minute)
       spend('registration:' + (verify ? 'verify:' : 'request:') + digest(clientNetwork(req.ip)), verify ? 20 : 3, accountWindow)
       if (!verify) spend('registration:email:' + digest(registrationEmail(req.body).email), 3, 60 * minute)
+    }),
+    recovery: middleware(req => {
+      spend('account-mail:global', 30, minute)
+      const request = req.path.toLowerCase().replace(/\/$/, '').endsWith('/request')
+      spend('recovery:' + (request ? 'request:' : 'verify:') + digest(clientNetwork(req.ip)), request ? 3 : 20, accountWindow)
+      if (request) spend('recovery:email:' + digest(registrationEmail(req.body).email), 3, 60 * minute)
+      else if (typeof req.body?.token === 'string' && /^[a-f0-9]{64}$/.test(req.body.token)) spend('recovery:token:' + digest(req.body.token), 10, accountWindow)
+    }),
+    emailChange: middleware(req => {
+      spend('account-mail:global', 30, minute)
+      spend('email-change:' + digest(registrationEmail({ email: req.body?.email }).email), 3, 60 * minute)
     }),
     async runCredential(task) {
       if (hashActive >= config.parallel) limited(1)

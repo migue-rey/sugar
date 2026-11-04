@@ -31,3 +31,13 @@ test('registration capability marker is independent of the compatible base schem
     }), value === 1)
   }
 })
+test('registration and account messages share a bounded SMTP concurrency budget', async () => {
+  let release
+  const pending = new Promise(resolve => { release = resolve })
+  const env = { SMTP_HOST: 'smtp.example.invalid', SMTP_USER: 'synthetic-user', SMTP_PASSWORD: 'invented-password', SMTP_FROM: 'sugar@example.invalid' }
+  const mail = createMailService({ q: async () => ({ rows: [] }), env, transportFactory: () => ({ sendMail: () => pending, close: () => {} }) })
+  const message = { email: 'test@example.invalid', language: 'es', purpose: 'reset', url: 'https://example.invalid/#synthetic' }
+  const one = mail.sendVerification(message), two = mail.sendAccountMessage(message)
+  await assert.rejects(mail.sendAccountMessage(message), { status: 429 })
+  release(); await Promise.all([one, two]); await mail.sendAccountMessage(message)
+})

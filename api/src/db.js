@@ -10,6 +10,7 @@ import { stringify } from './model.js'
 import { replaceEmbeddedImages } from './images.js'
 import { reportFailure } from './shared/logging.js'
 import { initRegistrationDb } from './registration/repository.js'
+import { initRecoveryDb } from './recovery/repository.js'
 
 export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
 pool.on('error', error => reportFailure('Database pool error', error))
@@ -40,6 +41,7 @@ export async function initDb() {
   await q(`ALTER TABLE users ALTER COLUMN theme SET DEFAULT 'light'`)
   await initSessionDb(q)
   await initRegistrationDb(q)
+  await initRecoveryDb(q)
   await q(`CREATE TABLE IF NOT EXISTS images (id uuid PRIMARY KEY, name text NOT NULL, mime text NOT NULL, data bytea NOT NULL, created_by uuid REFERENCES users(id), created_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz)` )
   await q(`CREATE TABLE IF NOT EXISTS blocks (id uuid PRIMARY KEY, name text NOT NULL, latest_version integer NOT NULL DEFAULT 0, deleted_at timestamptz)`)
   await q(`CREATE TABLE IF NOT EXISTS block_categories (id uuid PRIMARY KEY, slug text UNIQUE NOT NULL, name text NOT NULL, name_key text NOT NULL, parent_id uuid REFERENCES block_categories(id), deleted_at timestamptz)`)
@@ -63,6 +65,7 @@ export async function initDb() {
   await q(`CREATE TABLE IF NOT EXISTS project_settings_history (id bigserial PRIMARY KEY, project_id uuid NOT NULL REFERENCES projects(id), author_id uuid REFERENCES users(id), before jsonb NOT NULL, after jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now())`)
   await q(`CREATE TABLE IF NOT EXISTS settings (key text PRIMARY KEY, value jsonb NOT NULL)`)
   await q("INSERT INTO settings(key,value) VALUES('registration_schema_version','1'::jsonb) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+  await q("INSERT INTO settings(key,value) VALUES('recovery_schema_version','1'::jsonb) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
   await q(`CREATE TABLE IF NOT EXISTS sync_jobs (id bigserial PRIMARY KEY, kind text NOT NULL, record_id uuid NOT NULL, revision integer NOT NULL, yaml text NOT NULL, status text NOT NULL DEFAULT 'pending', attempts integer NOT NULL DEFAULT 0, error text, next_attempt_at timestamptz NOT NULL DEFAULT now(), commit_sha text, created_at timestamptz NOT NULL DEFAULT now())`)
   await q(`ALTER TABLE sync_jobs ADD COLUMN IF NOT EXISTS target_repository text`)
   await q(`ALTER TABLE sync_jobs ADD COLUMN IF NOT EXISTS target_branch text`)
