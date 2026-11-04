@@ -17,7 +17,7 @@ DESCRIPTOR = {'version': 2, 'commit': NEW, 'images': {name + '-image': {'id': va
 (ROOT / '.env').chmod(0o600)
 
 
-def scenario(fail='', access='runtime-v1', descriptor=None, has_db=True, first=False, invalid_old_id=None, stopped=False, previous_commit=OLD):
+def scenario(fail='', access='runtime-v1', descriptor=None, has_db=True, first=False, invalid_old_id=None, stopped=False, previous_commit=OLD, containerd=False):
     release = ROOT / 'release.env'
     original = 'IMAGE_TAG=' + previous_commit + ('\nDATABASE_ACCESS=runtime-v1' if access else '') + '\n'
     if first: release.unlink(missing_ok=True)
@@ -28,6 +28,7 @@ def scenario(fail='', access='runtime-v1', descriptor=None, has_db=True, first=F
                  current_app=previous_commit, commands=[], data_marker='unchanged-synthetic-rows', invalid_old_id=invalid_old_id, stopped=stopped,
                  old_ids={'db': OLD_ID, 'api': 'sha256:' + 'e' * 64, 'web': 'sha256:' + 'c' * 64},
                  current_api_image='sha256:' + 'e' * 64, current_web_image='sha256:' + 'c' * 64)
+    state['local_ids'] = {name: 'sha256:' + value * 64 for name, value in [('api', '4'), ('web', '5'), ('database', '6')]} if containerd else IDS
     target = Path('/tmp/runtime-fixture.json')
     target.write_text(json.dumps(state))
     payload = json.dumps(DESCRIPTOR if descriptor is None else descriptor, separators=(',', ':'))
@@ -83,5 +84,19 @@ for has_db, invalid in [(False, None), (True, 'untrusted:latest')]:
     result, state, record, original = scenario(has_db=has_db, invalid_old_id=invalid)
     assert result.returncode != 0 and record == original
     assert not any('up' in call or 'pull' in call for call in state['commands'])
+
+for fail in ('', 'identity-api', 'identity-web', 'identity-database', 'manifest', 'manifest-format', 'migration', 'health'):
+    result, state, record, original = scenario(fail, containerd=True)
+    if not fail:
+        assert result.returncode == 0
+        assert state['current_db'] == state['local_ids']['database']
+        assert state['current_api_image'] == state['local_ids']['api']
+        assert 'DATABASE_CONFIG=' + IDS['database'] in record
+        calls = [call for call in state['commands'] if call[:3] == ['docker', 'manifest', 'inspect']]
+        assert len(calls) == 3 and all('@sha256:' in call[-1] for call in calls)
+    else:
+        assert result.returncode != 0 and record == original
+        assert state['current_db'] == OLD_ID and state['current_api_image'] == state['old_ids']['api']
+        if fail.startswith(('identity', 'manifest')): assert not any('up' in call for call in state['commands'])
 
 print('PASS: release descriptor, identity/pull rejection, immutable DB, legacy/runtime rollback, unchanged data and state')

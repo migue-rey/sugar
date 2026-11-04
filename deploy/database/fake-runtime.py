@@ -24,7 +24,16 @@ elif args[0] == 'inspect':
 elif args[:2] == ['image', 'inspect']:
     if '--format' in args:
         component = args[-1].split('sugar-')[-1].split(':')[0]
-        output = 'sha256:' + 'f' * 64 if state['fail'] == 'identity-' + component else state['ids'][component]
+        if '.RepoDigests' in args[args.index('--format') + 1]:
+            output = json.dumps([args[-1].split(':')[0] + '@' + state['local_ids'][component]])
+        else:
+            output = 'sha256:' + 'f' * 64 if state['fail'] == 'identity-' + component else state['local_ids'][component]
+elif args[:2] == ['manifest', 'inspect']:
+    component = args[-1].split('sugar-')[-1].split('@')[0]
+    config = 'sha256:' + 'f' * 64 if state['fail'] == 'identity-' + component else state['ids'][component]
+    output = json.dumps({'schemaVersion': 2, 'config': {'digest': config}})
+    if state['fail'] == 'manifest': code = 1
+    if state['fail'] == 'manifest-format': output = '{"schemaVersion":2,"manifests":[]}'
 elif args[0] == 'compose':
     if 'config' in args: pass
     elif 'ps' in args:
@@ -34,7 +43,7 @@ elif args[0] == 'compose':
     elif 'exec' in args: output = 'synthetic-pg-dump'
     elif 'run' in args: code = int(state['fail'] == 'migration')
     elif 'up' in args:
-        is_new = os.environ.get('DATABASE_IMAGE') == state['ids']['database']
+        is_new = os.environ.get('DATABASE_IMAGE') == state['local_ids']['database']
         if is_new and state['fail'] == ('db' if args[-1] == 'db' else 'api'):
             code = 1
         else:

@@ -88,26 +88,52 @@ export API_IMAGE="ghcr.io/picli3/sugar-api:$sha"
 export WEB_IMAGE="ghcr.io/picli3/sugar-web:$sha"
 export DATABASE_IMAGE="ghcr.io/picli3/sugar-database:$sha"
 compose pull api web db
-for component in api web database; do
-  image_id=$(docker image inspect --format '{{.Id}}' "ghcr.io/picli3/sugar-$component:$sha")
-  case "$component" in
-    api) expected="$expected_api" ;;
-    web) expected="$expected_web" ;;
-    database) expected="$expected_database" ;;
-  esac
-  [[ "$image_id" == "$expected" ]] || { echo 'Pulled image differs from the scanned release.' >&2; exit 2; }
-done
+verify_image() {
+  local repository ref local_id digest config
+  repository="ghcr.io/picli3/sugar-$1"
+  ref="$repository:$sha"
+  local_id=$(docker image inspect --format '{{.Id}}' "$ref") || return 2
+  [[ "$local_id" =~ ^sha256:[a-f0-9]{64}$ ]] || return 2
+  config="$local_id"
+  if [[ "$local_id" != "$2" ]]; then
+    # The containerd store (Docker 29) exposes a manifest digest as local Id.
+    # Bind the pulled local image to its immutable registry digest, then compare
+    # its configuration digest with the scanned legacy-store image identity.
+    digest=$(docker image inspect --format '{{json .RepoDigests}}' "$ref" | python3 -I -c '
+import json,re,sys
+try:
+    matches = {value for value in json.load(sys.stdin) if re.fullmatch(re.escape(sys.argv[1]) + r"@sha256:[a-f0-9]{64}", value)}
+    if len(matches) != 1: raise ValueError()
+    print(matches.pop())
+except (ValueError, TypeError): sys.exit(2)
+' "$repository") || return 2
+    config=$(docker manifest inspect "$digest" | python3 -I -c '
+import json,re,sys
+try:
+    data = json.load(sys.stdin)
+    value = data["config"]["digest"]
+    if data.get("schemaVersion") != 2 or not re.fullmatch(r"sha256:[a-f0-9]{64}", value): raise ValueError()
+    print(value)
+except (ValueError, KeyError, TypeError): sys.exit(2)
+') || return 2
+  fi
+  [[ "$config" == "$2" ]] || { echo 'Pulled image differs from the scanned release.' >&2; return 2; }
+  printf '%s' "$local_id"
+}
+verified_api=$(verify_image api "$expected_api")
+verified_web=$(verify_image web "$expected_web")
+verified_database=$(verify_image database "$expected_database")
 # Start migration and all services by identity, not mutable registry tags.
-export API_IMAGE="$expected_api"
-export WEB_IMAGE="$expected_web"
-export DATABASE_IMAGE="$expected_database"
+export API_IMAGE="$verified_api"
+export WEB_IMAGE="$verified_web"
+export DATABASE_IMAGE="$verified_database"
 mkdir -p backups
 if compose ps --status running --services | grep -qx db; then
   compose exec -T db pg_dump -U designer -d hardware_designer -Fc > "backups/$(date -u +%Y%m%dT%H%M%SZ)-before-${sha:0:12}.dump"
 fi
 record_release() {
   release_file=$(mktemp /srv/sugar/.release.XXXXXX) || return 1
-  printf 'IMAGE_TAG=%s\nDATABASE_ACCESS=runtime-v1\nDATABASE_IMAGE=%s\nAPI_IMAGE=%s\nWEB_IMAGE=%s\n' "$sha" "$expected_database" "$expected_api" "$expected_web" > "$release_file" || return 1
+  printf 'IMAGE_TAG=%s\nDATABASE_ACCESS=runtime-v1\nDATABASE_IMAGE=%s\nAPI_IMAGE=%s\nWEB_IMAGE=%s\nAPI_CONFIG=%s\nWEB_CONFIG=%s\nDATABASE_CONFIG=%s\n' "$sha" "$verified_database" "$verified_api" "$verified_web" "$expected_api" "$expected_web" "$expected_database" > "$release_file" || return 1
   mv -f "$release_file" release.env
 }
 if ! compose up -d --wait --wait-timeout 180 db || ! compose --profile maintenance run --rm --no-deps migrate || ! compose up -d --wait --wait-timeout 180 || ! curl --fail --silent --retry 6 --retry-delay 2 http://127.0.0.1:18088/api/ready || ! record_release; then
