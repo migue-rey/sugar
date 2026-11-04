@@ -4,6 +4,23 @@ const directions = ['in', 'out', 'bidirectional']
 const fail = (message) => { throw Object.assign(new Error(message), { status: 400 }) }
 const object = (v) => v && typeof v === 'object' && !Array.isArray(v)
 const string = (v) => typeof v === 'string' && v.trim().length > 0
+export const documentLimits = Object.freeze({ yamlBytes: 2_000_000, depth: 32, values: 200_000, nodes: 500, edges: 2000, portsPerBlock: 128, portsPerProject: 10_000 })
+const exceeds = (subject, maximum) => fail(`${subject}: máximo ${maximum}; reduce el contenido / maximum ${maximum}; reduce the content`)
+export function validateDocumentBudget(value, kind) {
+  let blocks = [value]
+  if (kind === 'project') {
+    const nodes = Array.isArray(value?.nodes) ? value.nodes : []
+    if (nodes.length > documentLimits.nodes) exceeds('Bloques por proyecto / Blocks per project', documentLimits.nodes)
+    if (Array.isArray(value?.edges) && value.edges.length > documentLimits.edges) exceeds('Conexiones por proyecto / Connections per project', documentLimits.edges)
+    blocks = nodes.map(node => node?.block)
+  }
+  let totalPorts = 0
+  for (const block of blocks) if (Array.isArray(block?.ports)) {
+    if (block.ports.length > documentLimits.portsPerBlock) exceeds('Puertos por bloque / Ports per block', documentLimits.portsPerBlock)
+    totalPorts += block.ports.length
+  }
+  if (kind === 'project' && totalPorts > documentLimits.portsPerProject) exceeds('Puertos por proyecto / Ports per project', documentLimits.portsPerProject)
+}
 const webUrl = (v) => {
   if (!string(v) || v.length > 2048) return false
   try { return ['http:', 'https:'].includes(new URL(v).protocol) } catch { return false }
@@ -12,14 +29,40 @@ const webUrl = (v) => {
 export function normalizeColorLiterals(text) { return text.replace(/^([ \t]*color:[ \t]*)(#[0-9a-fA-F]{6})(?=[ \t]*(?:#.*)?\r?$)/gm, '$1"$2"') }
 
 export function parseYaml(text) {
-  if (typeof text !== 'string' || text.length > 2_000_000) fail('YAML vacío o demasiado grande')
-  const doc = YAML.parseDocument(normalizeColorLiterals(text), { uniqueKeys: true, maxAliasCount: 100 })
+  if (typeof text !== 'string') fail('YAML vacío o demasiado grande')
+  if (Buffer.byteLength(text, 'utf8') > documentLimits.yamlBytes) exceeds('YAML UTF-8 bytes', documentLimits.yamlBytes)
+  let doc
+  try { doc = YAML.parseDocument(normalizeColorLiterals(text), { uniqueKeys: true, maxAliasCount: 100 }) }
+  catch { fail('YAML inválido / Invalid YAML') }
   if (doc.errors.length) fail(doc.errors[0].message)
-  return doc.toJS({ maxAliasCount: 100 })
+  let count = 0
+  YAML.visit(doc, (_key, _node, path) => {
+    if (++count > documentLimits.values) exceeds('Valores YAML / YAML values', documentLimits.values)
+    if (path.filter(YAML.isCollection).length > documentLimits.depth) exceeds('Profundidad YAML / YAML depth', documentLimits.depth)
+  })
+  let value
+  try { value = doc.toJS({ maxAliasCount: 100 }) } catch { fail('Alias YAML inválido o excesivo / Invalid or excessive YAML alias') }
+  // Alias targets can form cycles or expand the effective depth beyond the AST path.
+  const pending = [{ value, depth: 0 }]
+  count = 0
+  let expandedBytes = 0
+  while (pending.length) {
+    const entry = pending.pop()
+    if (++count > documentLimits.values) exceeds('Valores YAML / YAML values', documentLimits.values)
+    if (entry.depth > documentLimits.depth) exceeds('Profundidad YAML / YAML depth', documentLimits.depth)
+    if (typeof entry.value === 'string') expandedBytes += Buffer.byteLength(entry.value, 'utf8')
+    if (entry.value && typeof entry.value === 'object') for (const key of Object.keys(entry.value)) {
+      expandedBytes += Buffer.byteLength(key, 'utf8')
+      if (pending.length + count >= documentLimits.values) exceeds('Valores YAML / YAML values', documentLimits.values)
+      pending.push({ value: entry.value[key], depth: entry.depth + 1 })
+    }
+    if (expandedBytes > documentLimits.yamlBytes) exceeds('Contenido YAML expandido UTF-8 bytes / Expanded YAML UTF-8 bytes', documentLimits.yamlBytes)
+  }
+  return value
 }
 
-export function validateBlock(text) {
-  const b = parseYaml(text)
+export function validateBlock(text) { return validateBlockValue(parseYaml(text)) }
+function validateBlockValue(b) {
   if (!object(b) || !string(b.name) || !string(b.function)) fail('El bloque requiere name y function')
   if (b.category != null && (typeof b.category !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(b.category))) fail('category debe ser un identificador de categoría válido')
   if (b.subcategory != null && (typeof b.subcategory !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(b.subcategory))) fail('subcategory debe ser un identificador válido')
@@ -44,6 +87,7 @@ export function validateBlock(text) {
     }
   }
   if (!Array.isArray(b.ports) || b.ports.length === 0) fail('El bloque requiere al menos un puerto')
+  if (b.ports.length > documentLimits.portsPerBlock) exceeds('Puertos por bloque / Ports per block', documentLimits.portsPerBlock)
   const ids = new Set()
   for (const p of b.ports) {
     if (!object(p) || !string(p.id) || !string(p.label) || !string(p.protocol) || !directions.includes(p.direction)) fail('Puerto inválido: id, label, protocol y direction son obligatorios')
@@ -58,10 +102,11 @@ export function validateBlock(text) {
 export function validateProject(text) {
   const p = parseYaml(text)
   if (!object(p) || !string(p.name) || !Array.isArray(p.nodes) || !Array.isArray(p.edges)) fail('El proyecto requiere name, nodes y edges')
+  validateDocumentBudget(p, 'project')
   const nodes = new Map()
   for (const n of p.nodes) {
     if (!object(n) || !string(n.id) || !object(n.position) || !Number.isFinite(n.position.x) || !Number.isFinite(n.position.y) || !object(n.block)) fail('Nodo inválido')
-    validateBlock(YAML.stringify(n.block))
+    validateBlockValue(n.block)
     if (nodes.has(n.id)) fail(`Nodo duplicado: ${n.id}`)
     nodes.set(n.id, n)
   }

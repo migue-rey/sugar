@@ -1,10 +1,11 @@
-import { asyncRoute, error } from './shared/http.js'
-import { validateBlock, validateProject } from './model.js'
+import { asyncRoute, error, noStore } from './shared/http.js'
+import { documentLimits, validateBlock, validateProject } from './model.js'
 import { validateCategory } from './categories.js'
 import { createBlockRepository } from './blocks/repository.js'
 import { requireLibraryAccess } from './library/access.js'
 
 export function registerDocumentRoutes(app, query) {
+  app.get('/api/document-limits', noStore, (_req, res) => res.json(documentLimits))
   app.post('/api/validate', asyncRoute(async (req, res) => {
     if (req.body.kind === 'project') validateProject(req.body.yaml)
     else if (req.body.kind === 'block') {
