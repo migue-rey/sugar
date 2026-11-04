@@ -4,7 +4,7 @@ import { error, requiredText } from '../shared/http.js'
 import { requireAdmin, requireEdit, requireProjectAccess, projectPermissions } from '../auth/policies.js'
 import { normalizeColorLiterals, stringify, validateProject } from '../model.js'
 import { repositorySettings } from './validation.js'
-import { pageInput, pageResult, revisionPageInput, revisionPageResult } from '../shared/pagination.js'
+import { pageInput, pageResult, revisionPageInput, revisionPageResult, bigintPageInput, identifierPageResult } from '../shared/pagination.js'
 
 export function createProjectService({ projects, transaction, enqueue, categoryIcons, replaceEmbeddedImages, attachImages = async () => {} }) {
   const get = async (id, user, options, tx, lock = false) => {
@@ -90,6 +90,11 @@ export function createProjectService({ projects, transaction, enqueue, categoryI
       return get(id, user)
     },
     async settingsHistory(id, user) { await get(id, user); return projects.settingsHistory(id) },
+    async settingsHistoryPage(id, user, query) {
+      requireProjectAccess(await projects.access(id, user.id), user)
+      const input = bigintPageInput(query)
+      return identifierPageResult(await projects.settingsHistoryPage(id, input), input.limit, item => item)
+    },
     async share(id, user) {
       const project = await get(id, user, { ownerOnly: true })
       if (project.visibility === 'public') return { path: `/?public=${project.id}` }

@@ -67,6 +67,7 @@ export async function initDb() {
   await q(`CREATE TABLE IF NOT EXISTS project_revisions (project_id uuid NOT NULL REFERENCES projects(id), revision integer NOT NULL, yaml text NOT NULL, author_id uuid REFERENCES users(id), summary text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(project_id, revision))`)
   await q(`UPDATE projects p SET created_by=(SELECT author_id FROM project_revisions r WHERE r.project_id=p.id ORDER BY revision LIMIT 1) WHERE p.created_by IS NULL`)
   await q(`CREATE TABLE IF NOT EXISTS project_settings_history (id bigserial PRIMARY KEY, project_id uuid NOT NULL REFERENCES projects(id), author_id uuid REFERENCES users(id), before jsonb NOT NULL, after jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now())`)
+  await q('CREATE INDEX IF NOT EXISTS project_settings_history_page ON project_settings_history(project_id,id DESC)')
   await q(`CREATE TABLE IF NOT EXISTS settings (key text PRIMARY KEY, value jsonb NOT NULL)`)
   await q("INSERT INTO settings(key,value) VALUES('registration_schema_version','1'::jsonb) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
   await q("INSERT INTO settings(key,value) VALUES('recovery_schema_version','1'::jsonb) ON CONFLICT(key) DO UPDATE SET value=excluded.value")

@@ -67,6 +67,13 @@ export function createProjectRepository(query) {
     async settingsHistory(id) {
       return (await query('SELECT h.before,h.after,h.created_at,u.email AS author FROM project_settings_history h LEFT JOIN users u ON u.id=h.author_id WHERE h.project_id=$1 ORDER BY h.id DESC', [id])).rows
     },
+    async settingsHistoryPage(id, { limit, before }) {
+      const args = [id], boundary = before === null ? '' : 'AND h.id<$2::bigint'
+      if (before !== null) args.push(before)
+      args.push(limit + 1)
+      return (await query(`SELECT h.id,h.before,h.after,h.created_at,u.email AS author FROM project_settings_history h
+        LEFT JOIN users u ON u.id=h.author_id WHERE h.project_id=$1 ${boundary} ORDER BY h.id DESC LIMIT $${args.length}`, args)).rows
+    },
     async share(id, token) {
       return (await query(`UPDATE projects SET share_token=CASE WHEN share_expires_at>now() AND share_token IS NOT NULL THEN share_token ELSE $2 END,share_expires_at=CASE WHEN share_expires_at>now() AND share_token IS NOT NULL THEN share_expires_at ELSE now()+interval '7 days' END WHERE id=$1 AND deleted_at IS NULL RETURNING share_token,share_expires_at`, [id, token])).rows[0]
     },

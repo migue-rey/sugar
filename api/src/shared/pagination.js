@@ -32,6 +32,11 @@ export function identifierPageInput(query = {}) {
   if (query.cursor !== undefined && (typeof query.cursor !== 'string' || !uuid.test(query.cursor))) invalid()
   return { limit, after: query.cursor ?? null }
 }
+export function bigintPageInput(query = {}) {
+  const limit = pageLimit(query), cursor = query.cursor
+  if (cursor !== undefined && (typeof cursor !== 'string' || !/^[1-9]\d{0,18}$/.test(cursor) || BigInt(cursor) > 9223372036854775807n)) invalid()
+  return { limit, before: cursor ?? null }
+}
 export function identifierPageResult(rows, limit, serialize) {
   const items = rows.slice(0, limit)
   return { items: items.map(serialize), nextCursor: rows.length > limit ? items.at(-1).id : null }

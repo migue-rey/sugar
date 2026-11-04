@@ -25,3 +25,9 @@ test('identifier pages reject malformed UUID boundaries and share bounded limits
   for(const cursor of ['1','ABCDEFAB-1111-1111-1111-111111111111',id+' ',[id]])assert.throws(()=>identifierPageInput({cursor}),{status:400})
   assert.deepEqual(identifierPageResult([{id},{id:'next'}],1,item=>item),{items:[{id}],nextCursor:id})
 })
+test('settings history boundaries retain all bigint precision and reject overflow', async () => {
+  const { bigintPageInput } = await import('./pagination.js')
+  assert.deepEqual(bigintPageInput(),{limit:30,before:null})
+  assert.deepEqual(bigintPageInput({cursor:'9223372036854775807'}),{limit:30,before:'9223372036854775807'})
+  for(const cursor of ['0','01','1e5','9223372036854775808','9'.repeat(20),['2']])assert.throws(()=>bigintPageInput({cursor}),{status:400})
+})
