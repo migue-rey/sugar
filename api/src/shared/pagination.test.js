@@ -10,5 +10,5 @@ test('page validation rejects unbounded/coerced input before querying and preser
   const result = pageResult([row, row], 1, value => value)
   assert.deepEqual(pageInput({ limit: '100', cursor: result.nextCursor }).after, { at: row.cursor_time, id: row.id })
   assert.equal(result.items[0].cursor_time, undefined)
-  for (const at of ['2026-02-30T00:00:00.123456Z','2026-01-01T24:00:00.123456Z']) assert.throws(() => pageInput({ cursor: Buffer.from(JSON.stringify({ at, id: row.id })).toString('base64url') }), { status: 400 })
+  for (const at of ['0000-01-01T00:00:00.123456Z','2026-02-30T00:00:00.123456Z','2026-01-01T24:00:00.123456Z']) assert.throws(() => pageInput({ cursor: Buffer.from(JSON.stringify({ at, id: row.id })).toString('base64url') }), { status: 400 })
 })

@@ -11,7 +11,7 @@ export function pageInput(query = {}) {
       const bytes = Buffer.from(query.cursor, 'base64url')
       if (bytes.toString('base64url') !== query.cursor) invalid()
       after = JSON.parse(bytes.toString())
-      if (!after || Array.isArray(after) || Object.keys(after).sort().join(',') !== 'at,id' || typeof after.at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(after.at) || new Date(after.at).toISOString().slice(0,23) !== after.at.slice(0,23) || typeof after.id !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(after.id)) invalid()
+      if (!after || Array.isArray(after) || Object.keys(after).sort().join(',') !== 'at,id' || typeof after.at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(after.at) || Number(after.at.slice(0,4)) < 1 || new Date(after.at).toISOString().slice(0,23) !== after.at.slice(0,23) || typeof after.id !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(after.id)) invalid()
     } catch { invalid() }
   }
   return { limit, after }
