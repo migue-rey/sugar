@@ -16,12 +16,12 @@ test('gallery pages require a live session and reject invalid pagination before 
   let response = await fetch(base + '/images/page')
   assert.equal(response.status, 401); assert.equal(lookups, 0)
   const cookie = 'session=' + jwt.sign({ id, sid }, secret, { expiresIn: 60 })
-  for (const path of ['/images/page','/projects/page']) for (const query of ['limit=101','limit[]=2','cursor=invalid','scope=all']) {
+  for (const path of ['/images/page','/projects/page','/blocks/page']) for (const query of ['limit=101','limit[]=2','cursor=invalid','scope=all']) {
     response = await fetch(base + path + '?' + query, { headers: { cookie } })
     assert.equal(response.status, 400)
     assert.equal(response.headers.get('cache-control'), 'private, no-store')
     assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
     assert.equal(response.headers.get('etag'), null)
   }
-  assert.equal(lookups, 8)
+  assert.equal(lookups, 12)
 })

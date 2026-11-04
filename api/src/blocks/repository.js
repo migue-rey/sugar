@@ -3,6 +3,21 @@ export function createBlockRepository(query) {
     async list(user) {
       return (await query(`SELECT b.id,b.name,b.latest_version,b.owner_id,v.yaml,v.created_at FROM blocks b JOIN block_versions v ON v.block_id=b.id AND v.version=b.latest_version WHERE b.deleted_at IS NULL AND (b.owner_id IS NULL OR b.owner_id=$1 OR $2='Admin') ORDER BY b.name`, [user.id, user.role])).rows
     },
+    async page(user, { limit, after }) {
+      const args = [], bind = value => { args.push(value); return '$' + args.length }
+      const boundary = after ? `AND b.id>${bind(after)}::uuid` : '', cap = bind(limit + 1)
+      const branch = filter => `(SELECT b.id,b.name,b.latest_version,b.owner_id FROM blocks b
+        WHERE b.deleted_at IS NULL AND EXISTS(SELECT 1 FROM block_versions v WHERE v.block_id=b.id AND v.version=b.latest_version)
+        ${filter} ${boundary} ORDER BY b.id LIMIT ${cap})`
+      const candidates = user.role === 'Admin' ? branch('') : branch(`AND b.owner_id=${bind(user.id)}::uuid`) + ' UNION ALL ' + branch('AND b.owner_id IS NULL')
+      return (await query(`SELECT b.*,v.yaml,v.created_at FROM (${candidates}) b
+        JOIN block_versions v ON v.block_id=b.id AND v.version=b.latest_version ORDER BY b.id LIMIT ${cap}`, args)).rows
+    },
+    async current(id) {
+      return (await query(`SELECT b.id,b.name,b.latest_version,b.owner_id,v.yaml,v.created_at
+        FROM blocks b JOIN block_versions v ON v.block_id=b.id AND v.version=b.latest_version
+        WHERE b.id=$1 AND b.deleted_at IS NULL`, [id])).rows[0]
+    },
     async find(id, execute = query, lock = false) {
       return (await execute(`SELECT id,owner_id FROM blocks WHERE id=$1 AND deleted_at IS NULL${lock ? ' FOR UPDATE' : ''}`, [id])).rows[0]
     },

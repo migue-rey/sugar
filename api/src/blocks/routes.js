@@ -1,8 +1,10 @@
 import { asyncRoute, noStore } from '../shared/http.js'
 
 export function registerBlockRoutes(app, blocks) {
+  app.get('/api/blocks/page', noStore, asyncRoute(async (req, res) => res.json(await blocks.page(req.user, req.query))))
   app.get('/api/blocks', asyncRoute(async (req, res) => res.json(await blocks.list(req.user))))
   app.post('/api/blocks', asyncRoute(async (req, res) => res.status(201).json(await blocks.create(req.user, req.body))))
+  app.get('/api/blocks/:id', noStore, asyncRoute(async (req, res) => res.json(await blocks.get(req.params.id, req.user))))
   app.get('/api/blocks/:id/versions', asyncRoute(async (req, res) => res.json(await blocks.versions(req.params.id, req.user))))
   app.get('/api/blocks/:id/versions/page', noStore, asyncRoute(async (req, res) => res.json(await blocks.versionsPage(req.params.id, req.user, req.query))))
   app.get('/api/blocks/:id/versions/:version', asyncRoute(async (req, res) => res.type('text/yaml').send(await blocks.version(req.params.id, req.params.version, req.user))))

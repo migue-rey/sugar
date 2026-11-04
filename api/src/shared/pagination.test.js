@@ -18,3 +18,10 @@ test('revision pages accept only canonical positive SQL integers and never silen
   for (const cursor of ['0','-1','01','1e2','1.5','2147483648', ['2']]) assert.throws(() => revisionPageInput({ cursor }), { status: 400 })
   assert.deepEqual(revisionPageResult([{ revision: 3 }, { revision: 2 }], 1, 'revision'), { items: [{ revision: 3 }], nextCursor: '3' })
 })
+test('identifier pages reject malformed UUID boundaries and share bounded limits', async () => {
+  const { identifierPageInput, identifierPageResult } = await import('./pagination.js')
+  const id = '12345678-1111-1111-1111-111111111111'
+  assert.deepEqual(identifierPageInput({cursor:id,limit:'1'}),{limit:1,after:id})
+  for(const cursor of ['1','ABCDEFAB-1111-1111-1111-111111111111',id+' ',[id]])assert.throws(()=>identifierPageInput({cursor}),{status:400})
+  assert.deepEqual(identifierPageResult([{id},{id:'next'}],1,item=>item),{items:[{id}],nextCursor:id})
+})

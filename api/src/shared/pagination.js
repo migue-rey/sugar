@@ -1,5 +1,6 @@
 import { error } from './http.js'
 const invalid = () => error(400, 'Paginación inválida / Invalid pagination')
+const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/
 function pageLimit(query) {
   if (Object.keys(query).some(key => !['limit','cursor'].includes(key))) invalid()
   const limit = query.limit === undefined ? 30 : typeof query.limit === 'string' && /^[1-9]\d{0,2}$/.test(query.limit) ? Number(query.limit) : 0
@@ -25,6 +26,15 @@ export function revisionPageInput(query = {}) {
   const cursor = query.cursor
   if (cursor !== undefined && (typeof cursor !== 'string' || !/^[1-9]\d{0,9}$/.test(cursor) || Number(cursor) > 2147483647)) invalid()
   return { limit, before: cursor === undefined ? null : Number(cursor) }
+}
+export function identifierPageInput(query = {}) {
+  const limit = pageLimit(query)
+  if (query.cursor !== undefined && (typeof query.cursor !== 'string' || !uuid.test(query.cursor))) invalid()
+  return { limit, after: query.cursor ?? null }
+}
+export function identifierPageResult(rows, limit, serialize) {
+  const items = rows.slice(0, limit)
+  return { items: items.map(serialize), nextCursor: rows.length > limit ? items.at(-1).id : null }
 }
 export function revisionPageResult(rows, limit, field) {
   const items = rows.slice(0, limit)

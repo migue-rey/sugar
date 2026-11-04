@@ -4,12 +4,21 @@ import { error, requiredText } from '../shared/http.js'
 import { requireAdmin } from '../auth/policies.js'
 import { libraryOwner, libraryPermissions, requireLibraryAccess } from '../library/access.js'
 import { normalizeColorLiterals, stringify, validateBlock } from '../model.js'
-import { revisionPageInput, revisionPageResult } from '../shared/pagination.js'
+import { revisionPageInput, revisionPageResult, identifierPageInput, identifierPageResult } from '../shared/pagination.js'
 
 export function createBlockService({ blocks, transaction, validateCategory, replaceEmbeddedImages, attachImages = async () => {} }) {
   const get = async (id, user, edit = false, tx, lock = false) => requireLibraryAccess(await blocks.find(id, tx, lock), user, edit)
   return {
     list: async user => (await blocks.list(user)).map(block => ({ ...block, permissions: libraryPermissions(block, user) })),
+    async page(user, query) {
+      const options = identifierPageInput(query)
+      return identifierPageResult(await blocks.page(user, options), options.limit, block => ({ ...block, permissions: libraryPermissions(block, user) }))
+    },
+    async get(id, user) {
+      await get(id, user)
+      const block = requireLibraryAccess(await blocks.current(id), user)
+      return { ...block, permissions: libraryPermissions(block, user) }
+    },
     async create(user, input) {
       const ownerId = libraryOwner(user, input.scope)
       const yaml = normalizeColorLiterals(requiredText(input.yaml, 'YAML')), block = validateBlock(yaml), id = crypto.randomUUID(), summary = input.summary || 'Bloque creado'
